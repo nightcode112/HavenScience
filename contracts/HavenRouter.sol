@@ -1,0 +1,894 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
+
+interface IERC20 {
+    function approve(address spender, uint256 amount) external returns (bool);
+    function transfer(address to, uint256 amount) external returns (bool);
+    function transferFrom(address from, address to, uint256 amount) external returns (bool);
+    function balanceOf(address account) external view returns (uint256);
+}
+
+interface IPancakeRouter {
+    function swapExactETHForTokens(
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256 deadline
+    ) external payable returns (uint256[] memory amounts);
+
+    function swapETHForExactTokens(
+        uint256 amountOut,
+        address[] calldata path,
+        address to,
+        uint256 deadline
+    ) external payable returns (uint256[] memory amounts);
+
+    function swapExactTokensForETH(
+        uint256 amountIn,
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256 deadline
+    ) external returns (uint256[] memory amounts);
+
+    function swapExactTokensForTokens(
+        uint256 amountIn,
+        uint256 amountOutMin,
+        address[] calldata path,
+        address to,
+        uint256 deadline
+    ) external returns (uint256[] memory amounts);
+
+    function getAmountsOut(
+        uint256 amountIn,
+        address[] calldata path
+    ) external view returns (uint256[] memory amounts);
+
+    function getAmountsIn(
+        uint256 amountOut,
+        address[] calldata path
+    ) external view returns (uint256[] memory amounts);
+}
+
+interface IBondingCurve {
+    function buy(uint256 xTokenAmount, uint256 minTokensOut) external;
+    function sell(uint256 tokenAmount, uint256 minXTokenOut) external;
+    function previewBuy(uint256 xTokenAmount) external view returns (uint256 tokensOut, uint256 feeXToken);
+    function previewSell(uint256 tokenAmount) external view returns (uint256 xTokenOut, uint256 feeXToken);
+    function isGraduated() external view returns (bool);
+}
+
+/**
+ * @title HavenRouter
+ * @notice Router contract for seamless BNB -> HAVEN -> Project Token swaps in a single transaction
+ * @dev Combines PancakeSwap DEX swaps with Haven bonding curve purchases
+ */
+contract HavenRouter {
+    // ============================================
+    // STATE VARIABLES
+    // ============================================
+
+    address public pancakeRouter;
+    address public havenToken;
+    address public wbnb;
+    address public owner;
+
+    // Configurable parameters
+    uint256 public defaultDeadlineOffset = 300; // 5 minutes
+    uint256 public maxSlippageBps = 5000; // 50% max slippage
+
+    // Emergency controls
+    bool public paused;
+
+    // ============================================
+    // EVENTS
+    // ============================================
+
+    event BuyExecuted(
+        address indexed user,
+        address indexed bondingCurveToken,
+        uint256 bnbIn,
+        uint256 havenSwapped,
+        uint256 tokensOut
+    );
+
+    event ExactBuyExecuted(
+        address indexed user,
+        address indexed bondingCurveToken,
+        uint256 bnbIn,
+        uint256 bnbRefunded,
+        uint256 tokensOut
+    );
+
+    event ConfigUpdated(
+        address indexed updater,
+        string parameter,
+        uint256 oldValue,
+        uint256 newValue
+    );
+
+    event AddressUpdated(
+        address indexed updater,
+        string parameter,
+        address oldAddress,
+        address newAddress
+    );
+
+    event EmergencyWithdraw(
+        address indexed token,
+        address indexed to,
+        uint256 amount
+    );
+
+    // ============================================
+    // ERRORS
+    // ============================================
+
+    error Paused();
+    error Unauthorized();
+    error InvalidAddress();
+    error InvalidAmount();
+    error SlippageExceeded();
+    error InsufficientOutput();
+    error TransferFailed();
+    error InvalidSlippage();
+
+    // ============================================
+    // MODIFIERS
+    // ============================================
+
+    modifier onlyOwner() {
+        if (msg.sender != owner) revert Unauthorized();
+        _;
+    }
+
+    modifier whenNotPaused() {
+        if (paused) revert Paused();
+        _;
+    }
+
+    // ============================================
+    // CONSTRUCTOR
+    // ============================================
+
+    /**
+     * @notice Initialize the router with required addresses
+     * @param _pancakeRouter PancakeSwap Router V2 address
+     * @param _havenToken HAVEN token address
+     * @param _wbnb WBNB token address
+     */
+    constructor(
+        address _pancakeRouter,
+        address _havenToken,
+        address _wbnb
+    ) {
+        if (_pancakeRouter == address(0)) revert InvalidAddress();
+        if (_havenToken == address(0)) revert InvalidAddress();
+        if (_wbnb == address(0)) revert InvalidAddress();
+
+        pancakeRouter = _pancakeRouter;
+        havenToken = _havenToken;
+        wbnb = _wbnb;
+        owner = msg.sender;
+    }
+
+    // ============================================
+    // MAIN FUNCTIONS
+    // ============================================
+
+    /**
+     * @notice Buy bonding curve tokens with exact BNB input
+     * @dev Swaps BNB -> HAVEN -> Project Token in a single transaction
+     * @param bondingCurveToken Address of the bonding curve token to buy
+     * @param minTokensOut Minimum amount of project tokens to receive (slippage protection)
+     * @return tokensOut Amount of project tokens received
+     */
+    function buyBondingCurveTokenWithBNB(
+        address bondingCurveToken,
+        uint256 minTokensOut
+    ) external payable whenNotPaused returns (uint256 tokensOut) {
+        if (bondingCurveToken == address(0)) revert InvalidAddress();
+        if (msg.value == 0) revert InvalidAmount();
+
+        // Step 1: Swap BNB -> HAVEN on PancakeSwap
+        address[] memory path = new address[](2);
+        path[0] = wbnb;
+        path[1] = havenToken;
+
+        uint256[] memory amounts = IPancakeRouter(pancakeRouter)
+            .swapExactETHForTokens{value: msg.value}(
+                0, // We'll check final slippage with minTokensOut
+                path,
+                address(this),
+                block.timestamp + defaultDeadlineOffset
+            );
+
+        uint256 havenReceived = amounts[1];
+        if (havenReceived == 0) revert InsufficientOutput();
+
+        // Step 2: Approve bonding curve to spend HAVEN
+        IERC20(havenToken).approve(bondingCurveToken, havenReceived);
+
+        // Step 3: Buy from bonding curve
+        IBondingCurve(bondingCurveToken).buy(havenReceived, minTokensOut);
+
+        // Step 4: Transfer project tokens to user
+        tokensOut = IERC20(bondingCurveToken).balanceOf(address(this));
+        if (tokensOut < minTokensOut) revert SlippageExceeded();
+
+        bool success = IERC20(bondingCurveToken).transfer(msg.sender, tokensOut);
+        if (!success) revert TransferFailed();
+
+        emit BuyExecuted(msg.sender, bondingCurveToken, msg.value, havenReceived, tokensOut);
+
+        return tokensOut;
+    }
+
+    /**
+     * @notice Buy exact amount of bonding curve tokens with BNB (refunds excess)
+     * @dev Calculates required HAVEN, swaps BNB -> HAVEN, buys tokens, refunds excess BNB
+     * @param bondingCurveToken Address of the bonding curve token to buy
+     * @param exactTokensOut Exact amount of project tokens to receive
+     * @param maxSlippageBps Maximum slippage in basis points (100 = 1%)
+     * @return bnbSpent Amount of BNB actually spent
+     * @return bnbRefunded Amount of BNB refunded to user
+     */
+    function buyExactTokensWithBNB(
+        address bondingCurveToken,
+        uint256 exactTokensOut,
+        uint256 maxSlippageBps
+    ) external payable whenNotPaused returns (uint256 bnbSpent, uint256 bnbRefunded) {
+        if (bondingCurveToken == address(0)) revert InvalidAddress();
+        if (msg.value == 0) revert InvalidAmount();
+        if (exactTokensOut == 0) revert InvalidAmount();
+        if (maxSlippageBps > maxSlippageBps) revert InvalidSlippage();
+
+        uint256 bnbInitial = msg.value;
+
+        // Step 1: Calculate required HAVEN for exact tokens
+        // This is an approximation - we'll need to iterate or use bonding curve preview
+        uint256 havenRequired = _estimateHavenForTokens(bondingCurveToken, exactTokensOut);
+
+        // Step 2: Calculate required BNB for HAVEN (with slippage buffer)
+        address[] memory havenPath = new address[](2);
+        havenPath[0] = wbnb;
+        havenPath[1] = havenToken;
+
+        uint256[] memory bnbAmounts = IPancakeRouter(pancakeRouter).getAmountsIn(
+            havenRequired,
+            havenPath
+        );
+        uint256 bnbRequired = bnbAmounts[0];
+
+        // Add slippage buffer
+        uint256 bnbWithSlippage = bnbRequired + (bnbRequired * maxSlippageBps / 10000);
+
+        // Check if user sent enough BNB
+        if (msg.value < bnbWithSlippage) revert InsufficientOutput();
+
+        // Step 3: Swap exact BNB for HAVEN
+        uint256[] memory havenAmounts = IPancakeRouter(pancakeRouter)
+            .swapExactETHForTokens{value: bnbWithSlippage}(
+                havenRequired, // Minimum HAVEN to receive
+                havenPath,
+                address(this),
+                block.timestamp + defaultDeadlineOffset
+            );
+
+        uint256 havenReceived = havenAmounts[1];
+
+        // Step 4: Approve and buy from bonding curve
+        IERC20(havenToken).approve(bondingCurveToken, havenReceived);
+        IBondingCurve(bondingCurveToken).buy(havenReceived, exactTokensOut);
+
+        // Step 5: Transfer exact tokens to user
+        uint256 tokensReceived = IERC20(bondingCurveToken).balanceOf(address(this));
+        if (tokensReceived < exactTokensOut) revert InsufficientOutput();
+
+        // Transfer exact amount requested
+        bool success = IERC20(bondingCurveToken).transfer(msg.sender, exactTokensOut);
+        if (!success) revert TransferFailed();
+
+        // If we received more tokens than requested, keep them in contract for dust
+        // (Owner can recover via emergencyWithdraw if needed)
+
+        // Step 6: Refund excess BNB to user
+        bnbSpent = bnbWithSlippage;
+        bnbRefunded = bnbInitial - bnbSpent;
+
+        if (bnbRefunded > 0) {
+            (bool refundSuccess, ) = payable(msg.sender).call{value: bnbRefunded}("");
+            if (!refundSuccess) revert TransferFailed();
+        }
+
+        emit ExactBuyExecuted(msg.sender, bondingCurveToken, msg.value, bnbRefunded, exactTokensOut);
+
+        return (bnbSpent, bnbRefunded);
+    }
+
+    /**
+     * @notice Buy graduated (DEX) tokens with BNB
+     * @dev Swaps BNB -> HAVEN -> Token via PancakeSwap for graduated tokens
+     * @param token Address of the graduated token to buy
+     * @param minTokensOut Minimum amount of tokens to receive (slippage protection)
+     * @return tokensOut Amount of tokens received
+     */
+    function buyGraduatedTokenWithBNB(
+        address token,
+        uint256 minTokensOut
+    ) external payable whenNotPaused returns (uint256 tokensOut) {
+        if (token == address(0)) revert InvalidAddress();
+        if (msg.value == 0) revert InvalidAmount();
+
+        // Swap BNB -> HAVEN -> Token via PancakeSwap
+        address[] memory path = new address[](3);
+        path[0] = wbnb;
+        path[1] = havenToken;
+        path[2] = token;
+
+        uint256[] memory amounts = IPancakeRouter(pancakeRouter)
+            .swapExactETHForTokens{value: msg.value}(
+                minTokensOut,
+                path,
+                msg.sender, // Send directly to user
+                block.timestamp + defaultDeadlineOffset
+            );
+
+        tokensOut = amounts[2];
+
+        emit BuyExecuted(msg.sender, token, msg.value, amounts[1], tokensOut);
+
+        return tokensOut;
+    }
+
+    /**
+     * @notice Buy graduated (DEX) tokens with HAVEN
+     * @dev Swaps HAVEN -> Token via PancakeSwap for graduated tokens
+     * @param token Address of the graduated token to buy
+     * @param havenAmount Amount of HAVEN to spend
+     * @param minTokensOut Minimum amount of tokens to receive (slippage protection)
+     * @return tokensOut Amount of tokens received
+     */
+    function buyGraduatedTokenWithHAVEN(
+        address token,
+        uint256 havenAmount,
+        uint256 minTokensOut
+    ) external whenNotPaused returns (uint256 tokensOut) {
+        if (token == address(0)) revert InvalidAddress();
+        if (havenAmount == 0) revert InvalidAmount();
+
+        // Transfer HAVEN from user to this contract
+        IERC20(havenToken).transferFrom(msg.sender, address(this), havenAmount);
+
+        // Approve PancakeSwap router to spend HAVEN
+        IERC20(havenToken).approve(pancakeRouter, havenAmount);
+
+        // Swap HAVEN -> Token via PancakeSwap (direct pair)
+        address[] memory path = new address[](2);
+        path[0] = havenToken;
+        path[1] = token;
+
+        uint256[] memory amounts = IPancakeRouter(pancakeRouter)
+            .swapExactTokensForTokens(
+                havenAmount,
+                minTokensOut,
+                path,
+                msg.sender, // Send directly to user
+                block.timestamp + defaultDeadlineOffset
+            );
+
+        tokensOut = amounts[1];
+
+        return tokensOut;
+    }
+
+    /**
+     * @notice Buy bonding curve tokens with HAVEN
+     * @dev Uses bonding curve buy function directly with HAVEN
+     * @param bondingCurveToken Address of the bonding curve token to buy
+     * @param havenAmount Amount of HAVEN to spend
+     * @param minTokensOut Minimum amount of tokens to receive (slippage protection)
+     * @return tokensOut Amount of tokens received
+     */
+    function buyBondingCurveTokenWithHAVEN(
+        address bondingCurveToken,
+        uint256 havenAmount,
+        uint256 minTokensOut
+    ) external whenNotPaused returns (uint256 tokensOut) {
+        if (bondingCurveToken == address(0)) revert InvalidAddress();
+        if (havenAmount == 0) revert InvalidAmount();
+
+        // Transfer HAVEN from user to this contract
+        IERC20(havenToken).transferFrom(msg.sender, address(this), havenAmount);
+
+        // Approve bonding curve to spend HAVEN
+        IERC20(havenToken).approve(bondingCurveToken, havenAmount);
+
+        // Buy on bonding curve
+        IBondingCurve(bondingCurveToken).buy(havenAmount, minTokensOut);
+
+        // Transfer tokens to user
+        uint256 tokenBalance = IERC20(bondingCurveToken).balanceOf(address(this));
+        IERC20(bondingCurveToken).transfer(msg.sender, tokenBalance);
+
+        tokensOut = tokenBalance;
+
+        return tokensOut;
+    }
+
+    /**
+     * @notice Sell bonding curve tokens for BNB
+     * @dev Sells tokens on bonding curve -> HAVEN, then HAVEN -> BNB
+     * @param bondingCurveToken Address of the bonding curve token to sell
+     * @param tokenAmount Amount of tokens to sell
+     * @param minBNBOut Minimum BNB to receive (slippage protection)
+     * @return bnbOut Amount of BNB received
+     */
+    function sellBondingCurveTokenForBNB(
+        address bondingCurveToken,
+        uint256 tokenAmount,
+        uint256 minBNBOut
+    ) external whenNotPaused returns (uint256 bnbOut) {
+        if (bondingCurveToken == address(0)) revert InvalidAddress();
+        if (tokenAmount == 0) revert InvalidAmount();
+
+        // Step 1: Transfer tokens from user to this contract
+        bool transferSuccess = IERC20(bondingCurveToken).transferFrom(msg.sender, address(this), tokenAmount);
+        if (!transferSuccess) revert TransferFailed();
+
+        // Step 2: Sell on bonding curve
+        IBondingCurve(bondingCurveToken).sell(tokenAmount, 0); // We'll check final slippage with minBNBOut
+
+        // Step 3: Swap HAVEN -> BNB
+        uint256 havenBalance = IERC20(havenToken).balanceOf(address(this));
+        if (havenBalance == 0) revert InsufficientOutput();
+
+        IERC20(havenToken).approve(pancakeRouter, havenBalance);
+
+        address[] memory path = new address[](2);
+        path[0] = havenToken;
+        path[1] = wbnb;
+
+        uint256[] memory amounts = IPancakeRouter(pancakeRouter)
+            .swapExactTokensForETH(
+                havenBalance,
+                minBNBOut,
+                path,
+                msg.sender, // Send BNB directly to user
+                block.timestamp + defaultDeadlineOffset
+            );
+
+        bnbOut = amounts[1];
+        if (bnbOut < minBNBOut) revert SlippageExceeded();
+
+        return bnbOut;
+    }
+
+    /**
+     * @notice Sell graduated (DEX) tokens for BNB
+     * @dev Sells Token -> HAVEN -> BNB via PancakeSwap
+     * @param token Address of the graduated token to sell
+     * @param tokenAmount Amount of tokens to sell
+     * @param minBNBOut Minimum BNB to receive (slippage protection)
+     * @return bnbOut Amount of BNB received
+     */
+    function sellGraduatedTokenForBNB(
+        address token,
+        uint256 tokenAmount,
+        uint256 minBNBOut
+    ) external whenNotPaused returns (uint256 bnbOut) {
+        if (token == address(0)) revert InvalidAddress();
+        if (tokenAmount == 0) revert InvalidAmount();
+
+        // Step 1: Transfer tokens from user
+        bool transferSuccess = IERC20(token).transferFrom(msg.sender, address(this), tokenAmount);
+        if (!transferSuccess) revert TransferFailed();
+
+        // Step 2: Approve PancakeSwap router
+        IERC20(token).approve(pancakeRouter, tokenAmount);
+
+        // Step 3: Swap Token -> HAVEN -> BNB via PancakeSwap
+        address[] memory path = new address[](3);
+        path[0] = token;
+        path[1] = havenToken;
+        path[2] = wbnb;
+
+        uint256[] memory amounts = IPancakeRouter(pancakeRouter)
+            .swapExactTokensForETH(
+                tokenAmount,
+                minBNBOut,
+                path,
+                msg.sender, // Send BNB directly to user
+                block.timestamp + defaultDeadlineOffset
+            );
+
+        bnbOut = amounts[2];
+
+        return bnbOut;
+    }
+
+    /**
+     * @notice Sell graduated (DEX) tokens for HAVEN
+     * @dev Sells Token -> HAVEN via PancakeSwap
+     * @param token Address of the graduated token to sell
+     * @param tokenAmount Amount of tokens to sell
+     * @param minHavenOut Minimum HAVEN to receive (slippage protection)
+     * @return havenOut Amount of HAVEN received
+     */
+    function sellGraduatedTokenForHAVEN(
+        address token,
+        uint256 tokenAmount,
+        uint256 minHavenOut
+    ) external whenNotPaused returns (uint256 havenOut) {
+        if (token == address(0)) revert InvalidAddress();
+        if (tokenAmount == 0) revert InvalidAmount();
+
+        // Step 1: Transfer tokens from user and check actual received amount (for tokens with transfer fees)
+        uint256 balanceBefore = IERC20(token).balanceOf(address(this));
+        bool transferSuccess = IERC20(token).transferFrom(msg.sender, address(this), tokenAmount);
+        if (!transferSuccess) revert TransferFailed();
+        uint256 balanceAfter = IERC20(token).balanceOf(address(this));
+        uint256 tokensReceived = balanceAfter - balanceBefore;
+
+        if (tokensReceived == 0) revert InvalidAmount();
+
+        // Step 2: Approve PancakeSwap router
+        IERC20(token).approve(pancakeRouter, tokensReceived);
+
+        // Step 3: Swap Token -> HAVEN via PancakeSwap (direct pair)
+        address[] memory path = new address[](2);
+        path[0] = token;
+        path[1] = havenToken;
+
+        uint256[] memory amounts = IPancakeRouter(pancakeRouter)
+            .swapExactTokensForTokens(
+                tokensReceived,  // Use actual received amount, not user input
+                minHavenOut,
+                path,
+                msg.sender, // Send HAVEN directly to user
+                block.timestamp + defaultDeadlineOffset
+            );
+
+        havenOut = amounts[1];
+
+        return havenOut;
+    }
+
+    // ============================================
+    // VIEW FUNCTIONS
+    // ============================================
+
+    /**
+     * @notice Preview how much BNB you'll get for selling bonding curve tokens
+     * @param bondingCurveToken Address of the bonding curve token
+     * @param tokenAmount Amount of tokens to sell
+     * @return bnbOut Estimated BNB to receive
+     * @return havenAmount Amount of HAVEN that will be received from bonding curve
+     */
+    function previewSellBondingCurveForBNB(
+        address bondingCurveToken,
+        uint256 tokenAmount
+    ) external view returns (uint256 bnbOut, uint256 havenAmount) {
+        // Step 1: Get HAVEN amount from bonding curve sell
+        (havenAmount, ) = IBondingCurve(bondingCurveToken).previewSell(tokenAmount);
+
+        // Step 2: Get BNB amount for HAVEN
+        address[] memory path = new address[](2);
+        path[0] = havenToken;
+        path[1] = wbnb;
+
+        uint256[] memory amounts = IPancakeRouter(pancakeRouter).getAmountsOut(
+            havenAmount,
+            path
+        );
+        bnbOut = amounts[1];
+
+        return (bnbOut, havenAmount);
+    }
+
+    /**
+     * @notice Preview how much BNB you'll get for selling graduated tokens
+     * @param token Address of the graduated token
+     * @param tokenAmount Amount of tokens to sell
+     * @return bnbOut Estimated BNB to receive
+     */
+    function previewSellGraduatedForBNB(
+        address token,
+        uint256 tokenAmount
+    ) external view returns (uint256 bnbOut) {
+        // Swap Token -> HAVEN -> BNB via PancakeSwap
+        address[] memory path = new address[](3);
+        path[0] = token;
+        path[1] = havenToken;
+        path[2] = wbnb;
+
+        uint256[] memory amounts = IPancakeRouter(pancakeRouter).getAmountsOut(
+            tokenAmount,
+            path
+        );
+        bnbOut = amounts[2];
+
+        return bnbOut;
+    }
+
+    /**
+     * @notice Preview how much BNB you'll get for buying graduated tokens
+     * @param token Address of the graduated token
+     * @param bnbAmount Amount of BNB to spend
+     * @return tokensOut Estimated tokens to receive
+     */
+    function previewBuyGraduatedWithBNB(
+        address token,
+        uint256 bnbAmount
+    ) external view returns (uint256 tokensOut) {
+        // Swap BNB -> HAVEN -> Token via PancakeSwap
+        address[] memory path = new address[](3);
+        path[0] = wbnb;
+        path[1] = havenToken;
+        path[2] = token;
+
+        uint256[] memory amounts = IPancakeRouter(pancakeRouter).getAmountsOut(
+            bnbAmount,
+            path
+        );
+        tokensOut = amounts[2];
+
+        return tokensOut;
+    }
+
+    /**
+     * @notice Preview how many graduated tokens you'll get for a given HAVEN amount
+     * @param token Address of the graduated token
+     * @param havenAmount Amount of HAVEN to spend
+     * @return tokensOut Estimated tokens to receive
+     */
+    function previewBuyGraduatedWithHAVEN(
+        address token,
+        uint256 havenAmount
+    ) external view returns (uint256 tokensOut) {
+        // Swap HAVEN -> Token via PancakeSwap (direct pair)
+        address[] memory path = new address[](2);
+        path[0] = havenToken;
+        path[1] = token;
+
+        uint256[] memory amounts = IPancakeRouter(pancakeRouter).getAmountsOut(
+            havenAmount,
+            path
+        );
+        tokensOut = amounts[1];
+
+        return tokensOut;
+    }
+
+    /**
+     * @notice Preview how many bonding curve tokens you'll get for a given HAVEN amount
+     * @param bondingCurveToken Address of the bonding curve token
+     * @param havenAmount Amount of HAVEN to spend
+     * @return tokensOut Estimated tokens to receive
+     */
+    function previewBuyBondingCurveWithHAVEN(
+        address bondingCurveToken,
+        uint256 havenAmount
+    ) external view returns (uint256 tokensOut) {
+        // Get token amount from bonding curve
+        (tokensOut, ) = IBondingCurve(bondingCurveToken).previewBuy(havenAmount);
+
+        return tokensOut;
+    }
+
+    /**
+     * @notice Preview how much HAVEN you'll get for selling graduated tokens
+     * @param token Address of the graduated token
+     * @param tokenAmount Amount of tokens to sell
+     * @return havenOut Estimated HAVEN to receive
+     */
+    function previewSellGraduatedForHAVEN(
+        address token,
+        uint256 tokenAmount
+    ) external view returns (uint256 havenOut) {
+        // Swap Token -> HAVEN via PancakeSwap (direct pair)
+        address[] memory path = new address[](2);
+        path[0] = token;
+        path[1] = havenToken;
+
+        uint256[] memory amounts = IPancakeRouter(pancakeRouter).getAmountsOut(
+            tokenAmount,
+            path
+        );
+        havenOut = amounts[1];
+
+        return havenOut;
+    }
+
+    /**
+     * @notice Preview how many tokens you'll get for a given BNB amount
+     * @param bondingCurveToken Address of the bonding curve token
+     * @param bnbAmount Amount of BNB to spend
+     * @return tokensOut Estimated tokens to receive
+     * @return havenAmount Amount of HAVEN that will be swapped
+     */
+    function previewBuyWithBNB(
+        address bondingCurveToken,
+        uint256 bnbAmount
+    ) external view returns (uint256 tokensOut, uint256 havenAmount) {
+        // Step 1: Get HAVEN amount for BNB
+        address[] memory path = new address[](2);
+        path[0] = wbnb;
+        path[1] = havenToken;
+
+        uint256[] memory amounts = IPancakeRouter(pancakeRouter).getAmountsOut(
+            bnbAmount,
+            path
+        );
+        havenAmount = amounts[1];
+
+        // Step 2: Get token amount from bonding curve
+        (tokensOut, ) = IBondingCurve(bondingCurveToken).previewBuy(havenAmount);
+
+        return (tokensOut, havenAmount);
+    }
+
+    /**
+     * @notice Preview how much BNB needed for exact tokens
+     * @param bondingCurveToken Address of the bonding curve token
+     * @param exactTokensOut Exact amount of tokens desired
+     * @return bnbRequired Estimated BNB required (without slippage buffer)
+     * @return havenRequired Amount of HAVEN required
+     */
+    function previewExactBuyWithBNB(
+        address bondingCurveToken,
+        uint256 exactTokensOut
+    ) external view returns (uint256 bnbRequired, uint256 havenRequired) {
+        // Step 1: Estimate HAVEN needed for tokens
+        havenRequired = _estimateHavenForTokens(bondingCurveToken, exactTokensOut);
+
+        // Step 2: Get BNB amount for HAVEN
+        address[] memory path = new address[](2);
+        path[0] = wbnb;
+        path[1] = havenToken;
+
+        uint256[] memory amounts = IPancakeRouter(pancakeRouter).getAmountsIn(
+            havenRequired,
+            path
+        );
+        bnbRequired = amounts[0];
+
+        return (bnbRequired, havenRequired);
+    }
+
+    // ============================================
+    // CONFIGURATION FUNCTIONS
+    // ============================================
+
+    /**
+     * @notice Update PancakeSwap router address
+     */
+    function setPancakeRouter(address _pancakeRouter) external onlyOwner {
+        if (_pancakeRouter == address(0)) revert InvalidAddress();
+        emit AddressUpdated(msg.sender, "pancakeRouter", pancakeRouter, _pancakeRouter);
+        pancakeRouter = _pancakeRouter;
+    }
+
+    /**
+     * @notice Update HAVEN token address
+     */
+    function setHavenToken(address _havenToken) external onlyOwner {
+        if (_havenToken == address(0)) revert InvalidAddress();
+        emit AddressUpdated(msg.sender, "havenToken", havenToken, _havenToken);
+        havenToken = _havenToken;
+    }
+
+    /**
+     * @notice Update WBNB address
+     */
+    function setWBNB(address _wbnb) external onlyOwner {
+        if (_wbnb == address(0)) revert InvalidAddress();
+        emit AddressUpdated(msg.sender, "wbnb", wbnb, _wbnb);
+        wbnb = _wbnb;
+    }
+
+    /**
+     * @notice Update default deadline offset
+     * @param _offset New offset in seconds
+     */
+    function setDefaultDeadlineOffset(uint256 _offset) external onlyOwner {
+        emit ConfigUpdated(msg.sender, "defaultDeadlineOffset", defaultDeadlineOffset, _offset);
+        defaultDeadlineOffset = _offset;
+    }
+
+    /**
+     * @notice Update maximum slippage
+     * @param _maxSlippageBps New max slippage in basis points
+     */
+    function setMaxSlippage(uint256 _maxSlippageBps) external onlyOwner {
+        emit ConfigUpdated(msg.sender, "maxSlippageBps", maxSlippageBps, _maxSlippageBps);
+        maxSlippageBps = _maxSlippageBps;
+    }
+
+    /**
+     * @notice Transfer ownership
+     */
+    function transferOwnership(address newOwner) external onlyOwner {
+        if (newOwner == address(0)) revert InvalidAddress();
+        emit AddressUpdated(msg.sender, "owner", owner, newOwner);
+        owner = newOwner;
+    }
+
+    /**
+     * @notice Pause/unpause contract
+     */
+    function setPaused(bool _paused) external onlyOwner {
+        paused = _paused;
+    }
+
+    // ============================================
+    // EMERGENCY FUNCTIONS
+    // ============================================
+
+    /**
+     * @notice Emergency withdraw any tokens stuck in contract
+     * @param token Address of token to withdraw (address(0) for BNB)
+     * @param to Address to send tokens to
+     * @param amount Amount to withdraw
+     */
+    function emergencyWithdraw(
+        address token,
+        address to,
+        uint256 amount
+    ) external onlyOwner {
+        if (to == address(0)) revert InvalidAddress();
+
+        if (token == address(0)) {
+            // Withdraw BNB
+            (bool success, ) = payable(to).call{value: amount}("");
+            if (!success) revert TransferFailed();
+        } else {
+            // Withdraw ERC20
+            bool success = IERC20(token).transfer(to, amount);
+            if (!success) revert TransferFailed();
+        }
+
+        emit EmergencyWithdraw(token, to, amount);
+    }
+
+    // ============================================
+    // INTERNAL FUNCTIONS
+    // ============================================
+
+    /**
+     * @notice Estimate HAVEN needed for target token amount
+     * @dev Uses binary search approximation on bonding curve
+     */
+    function _estimateHavenForTokens(
+        address bondingCurveToken,
+        uint256 targetTokens
+    ) internal view returns (uint256 havenEstimate) {
+        // Simple approximation: try preview and adjust
+        // For better accuracy, implement binary search
+
+        // Start with 1:1 ratio as baseline
+        havenEstimate = targetTokens;
+
+        // Check preview
+        (uint256 previewTokens, ) = IBondingCurve(bondingCurveToken).previewBuy(havenEstimate);
+
+        // Adjust based on ratio
+        if (previewTokens < targetTokens) {
+            // Need more HAVEN
+            havenEstimate = (havenEstimate * targetTokens) / previewTokens;
+            // Add 2% buffer for safety
+            havenEstimate = havenEstimate + (havenEstimate * 200 / 10000);
+        }
+
+        return havenEstimate;
+    }
+
+    // ============================================
+    // RECEIVE FUNCTION
+    // ============================================
+
+    /**
+     * @notice Allow contract to receive BNB
+     */
+    receive() external payable {}
+}

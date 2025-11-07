@@ -1,0 +1,85 @@
+{
+  "_format": "hh-sol-cache-2",
+  "files": {
+    "D:\\haven\\HavenScience\\contracts\\HavenRouter.sol": {
+      "lastModificationDate": 1761941165923,
+      "contentHash": "0b1e6aa6d0a8abfc036acd42b65cf36e",
+      "sourceName": "contracts/HavenRouter.sol",
+      "solcConfig": {
+        "version": "0.8.20",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.20"
+      ],
+      "artifacts": [
+        "HavenRouter",
+        "IBondingCurve",
+        "IERC20",
+        "IPancakeRouter"
+      ]
+    },
+    "D:\\haven\\HavenScience\\contracts\\HavenRouterV2.sol": {
+      "lastModificationDate": 1761942084786,
+      "contentHash": "76edffea74b4fe0252ee7c67c38caefa",
+      "sourceName": "contracts/HavenRouterV2.sol",
+      "solcConfig": {
+        "version": "0.8.20",
+        "settings": {
+          "optimizer": {
+            "enabled": true,
+            "runs": 200
+          },
+          "viaIR": true,
+          "evmVersion": "paris",
+          "outputSelection": {
+            "*": {
+              "*": [
+                "abi",
+                "evm.bytecode",
+                "evm.deployedBytecode",
+                "evm.methodIdentifiers",
+                "metadata"
+              ],
+              "": [
+                "ast"
+              ]
+            }
+          }
+        }
+      },
+      "imports": [],
+      "versionPragmas": [
+        "^0.8.20"
+      ],
+      "artifacts": [
+        "HavenRouterV2",
+        "IBondingCurve",
+        "IERC20",
+        "IPancakeRouter"
+      ]
+    }
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "network": "bsc",
+  "address": "0x750b16d08f274b90afa827d2d50905dd80036715",
+  "deployer": "0xf244Ba7981fFDce87EF83E6dB6E2Ec9246727A38",
+  "timestamp": "2025-10-31T20:02:26.412Z",
+  "txHash": "0xfa2aa4c517fb87865cd351afa05a4efdcb5a6c0bcd8b78fc0b9f04fefc7542bb",
+  "constructor": {
+    "pancakeRouter": "0x10ED43C718714eb63d5aA57B78B54704E256024E",
+    "havenToken": "0x3c06AF089F1188c8357b29bDf9f98B36E51f7690",
+    "wbnb": "0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c"
+  },
+  "verified": true,
+  "bscscanUrl": "https://bscscan.com/address/0x750b16d08f274b90afa827d2d50905dd80036715#code",
+  "features": [
+    "buyBondingCurveTokenWithBNB",
+    "buyGraduatedTokenWithBNB",
+    "sellBondingCurveTokenForBNB",
+    "sellGraduatedTokenForBNB",
+    "buyBondingCurveTokenWithHAVEN",
+    "buyGraduatedTokenWithHAVEN",
+    "sellGraduatedTokenForHAVEN",
+    "previewBuyWithBNB",
+    "previewBuyGraduatedWithBNB",
+    "previewSellBondingCurveForBNB",
+    "previewSellGraduatedForBNB",
+    "previewBuyBondingCurveWithHAVEN",
+    "previewBuyGraduatedWithHAVEN",
+    "previewSellGraduatedForHAVEN"
+  ]
+}

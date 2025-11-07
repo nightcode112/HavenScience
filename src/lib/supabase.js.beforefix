@@ -1,0 +1,622 @@
+import { createClient } from '@supabase/supabase-js'
+
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+const supabaseKey = import.meta.env.VITE_SUPABASE_KEY
+
+if (!supabaseUrl || !supabaseKey) {
+  throw new Error('Missing Supabase environment variables')
+}
+
+export const supabase = createClient(supabaseUrl, supabaseKey)
+
+// Helper functions for tokens (using existing robots table)
+export const BondingTokensApi = {
+  // Get all tokens with optional filters
+  async getTokens({
+    isGraduated = null,
+    orderBy = 'created_at',
+    orderDirection = 'desc',
+    limit = 100
+  } = {}) {
+    let query = supabase
+      .from('robots')
+      .select('*')
+
+    if (isGraduated !== null) {
+      query = query.eq('is_graduated', isGraduated)
+    }
+
+    query = query.order(orderBy, { ascending: orderDirection === 'asc' })
+
+    if (limit) {
+      query = query.limit(limit)
+    }
+
+    const { data, error } = await query
+    if (error) throw error
+    return data
+  },
+
+  // Get trending tokens (high volume)
+  async getTrending(limit = 50) {
+    const { data, error } = await supabase
+      .from('robots')
+      .select('*')
+      .eq('is_graduated', false)
+      .order('volume_24h', { ascending: false })
+      .limit(limit)
+
+    if (error) throw error
+    return data
+  },
+
+  // Get new tokens
+  async getNew(limit = 50) {
+    const { data, error } = await supabase
+      .from('robots')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(limit)
+
+    if (error) throw error
+    return data
+  },
+
+  // Get almost graduated tokens
+  async getAlmostGraduated(limit = 30) {
+    const { data, error } = await supabase
+      .from('robots')
+      .select('*')
+      .eq('is_graduated', false)
+      .gte('real_eth_reserve', 2.8) // 70% of 4 ETH target
+      .order('real_eth_reserve', { ascending: false })
+      .limit(limit)
+
+    if (error) throw error
+    return data
+  },
+
+  // Get graduated tokens
+  async getGraduated(limit = 50) {
+    const { data, error } = await supabase
+      .from('robots')
+      .select('*')
+      .eq('is_graduated', true)
+      .order('graduated_at', { ascending: false })
+      .limit(limit)
+
+    if (error) throw error
+    return data
+  },
+
+  // Get single token by contract address
+  async getToken(contractAddress) {
+    const { data, error } = await supabase
+      .from('robots')
+      .select('*')
+      .eq('contract', contractAddress)
+      .single()
+
+    if (error) throw error
+    return data
+  },
+
+  // Create new token
+  async createToken(tokenData) {
+    const { data, error } = await supabase
+      .from('robots')
+      .insert([tokenData])
+      .select()
+      .single()
+
+    if (error) throw error
+    return data
+  },
+
+  // Update token
+  async updateToken(contractAddress, updates) {
+    const { data, error } = await supabase
+      .from('robots')
+      .update(updates)
+      .eq('contract', contractAddress)
+      .select()
+      .single()
+
+    if (error) throw error
+    return data
+  },
+
+  // Search tokens
+  async searchTokens(query) {
+    const { data, error } = await supabase
+      .from('robots')
+      .select('*')
+      .or(`name.ilike.%${query}%,ticker.ilike.%${query}%,description.ilike.%${query}%`)
+      .limit(50)
+
+    if (error) throw error
+    return data
+  }
+}
+
+// Helper functions for trades (using existing trades table)
+export const TradesApi = {
+  // Get trades for a token
+  async getTokenTrades(tokenAddress, limit = 100) {
+    const { data, error } = await supabase
+      .from('trades')
+      .select('*')
+      .eq('contract', tokenAddress)
+      .order('timestamp', { ascending: false })
+      .limit(limit)
+
+    if (error) throw error
+    return data
+  },
+
+  // Get trades for a trader
+  async getTraderTrades(traderAddress, limit = 100) {
+    const { data, error } = await supabase
+      .from('trades')
+      .select('*')
+      .eq('user', traderAddress)
+      .order('timestamp', { ascending: false })
+      .limit(limit)
+
+    if (error) throw error
+    return data
+  },
+
+  // Record a new trade
+  async createTrade(tradeData) {
+    const { data, error } = await supabase
+      .from('trades')
+      .insert([tradeData])
+      .select()
+      .single()
+
+    if (error) throw error
+    return data
+  },
+
+  // Execute trade (simpler version without stored procedure)
+  async executeTrade({
+    tokenAddress,
+    traderAddress,
+    tradeType,
+    ethAmount,
+    tokenAmount,
+    pricePerToken,
+    newEthReserve,
+    newTokenReserve,
+    newPrice,
+    txHash,
+    gasUsed = null,
+    blockNumber = null
+  }) {
+    // Insert trade record
+    const tradeRecord = {
+      contract: tokenAddress,
+      type: tradeType,
+      user: traderAddress,
+      ethIn: tradeType === 'buy' ? ethAmount : null,
+      tokensOut: tradeType === 'buy' ? tokenAmount : null,
+      tokensIn: tradeType === 'sell' ? tokenAmount : null,
+      ethOut: tradeType === 'sell' ? ethAmount : null,
+      price_per_token: pricePerToken,
+      new_eth_reserve: newEthReserve,
+      new_token_reserve: newTokenReserve,
+      new_price: newPrice,
+      tx_hash: txHash,
+      gas_used: gasUsed,
+      block_number: blockNumber,
+      timestamp: Date.now() / 1000
+    }
+
+    const { data: trade, error: tradeError } = await supabase
+      .from('trades')
+      .insert([tradeRecord])
+      .select()
+      .single()
+
+    if (tradeError) throw tradeError
+
+    // Update holdings based on trade type
+    try {
+      const { HoldingsApi } = await import('./supabase.js')
+
+      if (tradeType === 'buy') {
+        // Buyer receives tokens
+        await HoldingsApi.upsertHolding(tokenAddress, traderAddress, tokenAmount)
+      } else if (tradeType === 'sell') {
+        // Seller loses tokens
+        await HoldingsApi.upsertHolding(tokenAddress, traderAddress, -tokenAmount)
+      }
+
+      // Update holders count
+      const holdersCount = await HoldingsApi.getHoldersCount(tokenAddress)
+      await supabase
+        .from('robots')
+        .update({ holders_count: holdersCount })
+        .or(`contract.eq.${tokenAddress},bonding_contract.eq.${tokenAddress}`)
+    } catch (holdingsError) {
+      console.warn('Failed to update holdings:', holdingsError)
+    }
+
+    // Update robot stats with blockchain data
+    try {
+      const { ethers } = await import('ethers')
+      const provider = new ethers.JsonRpcProvider('https://bsc-dataseed.binance.org/')
+      const X_TOKEN_PRICE_USD = 1.379
+
+      const TOKEN_ABI = [
+        'function totalSupply() view returns (uint256)',
+        'function getMarketCapXToken() view returns (uint256)',
+        'function isGraduated() view returns (bool)',
+        'function uniswapV2Pair() view returns (address)'
+      ]
+
+      const PAIR_ABI = [
+        'function getReserves() view returns (uint112 reserve0, uint112 reserve1, uint32 blockTimestampLast)',
+        'function token0() view returns (address)',
+        'function token1() view returns (address)'
+      ]
+
+      const tokenContract = new ethers.Contract(tokenAddress, TOKEN_ABI, provider)
+      let blockchainPrice = newPrice
+      let blockchainMarketCap = null
+      let totalSupply = null
+      let isGraduated = false
+      let uniswapPoolAddress = null
+
+      try {
+        isGraduated = await tokenContract.isGraduated()
+        totalSupply = parseFloat(ethers.formatEther(await tokenContract.totalSupply()))
+
+        if (isGraduated) {
+          uniswapPoolAddress = await tokenContract.uniswapV2Pair()
+          if (uniswapPoolAddress && uniswapPoolAddress !== ethers.ZeroAddress) {
+            const pairContract = new ethers.Contract(uniswapPoolAddress, PAIR_ABI, provider)
+            const [reserves, token0Address] = await Promise.all([
+              pairContract.getReserves(),
+              pairContract.token0()
+            ])
+
+            const reserve0 = parseFloat(ethers.formatEther(reserves[0]))
+            const reserve1 = parseFloat(ethers.formatEther(reserves[1]))
+            const isToken0Project = token0Address.toLowerCase() === tokenAddress.toLowerCase()
+            const projectTokenReserve = isToken0Project ? reserve0 : reserve1
+            const xTokenReserve = isToken0Project ? reserve1 : reserve0
+
+            const priceInXToken = xTokenReserve / projectTokenReserve
+            blockchainPrice = priceInXToken * X_TOKEN_PRICE_USD
+            blockchainMarketCap = blockchainPrice * totalSupply
+          }
+        } else {
+          const marketCapXToken = await tokenContract.getMarketCapXToken()
+          const mcXToken = parseFloat(ethers.formatEther(marketCapXToken))
+          const priceInXToken = mcXToken / totalSupply
+          blockchainPrice = priceInXToken * X_TOKEN_PRICE_USD
+          blockchainMarketCap = mcXToken * X_TOKEN_PRICE_USD
+        }
+      } catch (blockchainError) {
+        console.warn('Failed to read blockchain data:', blockchainError)
+      }
+
+      const updateData = {
+        real_eth_reserve: newEthReserve,
+        real_token_reserve: newTokenReserve,
+        price: blockchainPrice,
+        volume_24h: supabase.raw(`volume_24h + ${ethAmount}`),
+        txns_24h: supabase.raw('txns_24h + 1')
+      }
+
+      if (blockchainMarketCap !== null) {
+        updateData.market_cap = blockchainMarketCap
+      }
+
+      if (totalSupply !== null) {
+        updateData.total_supply = totalSupply
+      }
+
+      updateData.is_graduated = isGraduated
+
+      if (uniswapPoolAddress) {
+        updateData.uniswap_pool_address = uniswapPoolAddress
+      }
+
+      const { error: updateError } = await supabase
+        .from('robots')
+        .update(updateData)
+        .or(`contract.eq.${tokenAddress},bonding_contract.eq.${tokenAddress}`)
+
+      if (updateError) console.warn('Failed to update robot stats:', updateError)
+    } catch (error) {
+      console.warn('Failed to update stats with blockchain data:', error)
+      await supabase
+        .from('robots')
+        .update({
+          real_eth_reserve: newEthReserve,
+          real_token_reserve: newTokenReserve,
+          price: newPrice,
+          volume_24h: supabase.raw(`volume_24h + ${ethAmount}`),
+          txns_24h: supabase.raw('txns_24h + 1')
+        })
+        .or(`contract.eq.${tokenAddress},bonding_contract.eq.${tokenAddress}`)
+    }
+
+    return { success: true, tx_hash: txHash, trade }
+  }
+}
+
+// Helper functions for holdings
+export const HoldingsApi = {
+  // Get user's holdings
+  async getUserHoldings(userAddress) {
+    const { data, error } = await supabase
+      .from('bonding_holdings')
+      .select('*')
+      .eq('holder_address', userAddress)
+      .gt('balance', 0)
+      .order('balance', { ascending: false })
+
+    if (error) throw error
+    return data
+  },
+
+  // Get holders for a token
+  async getTokenHolders(tokenAddress, limit = 100) {
+    const { data, error } = await supabase
+      .from('bonding_holdings')
+      .select('*')
+      .eq('token_address', tokenAddress)
+      .gt('balance', 0)
+      .order('balance', { ascending: false })
+      .limit(limit)
+
+    if (error) throw error
+    return data
+  },
+
+  // Get single holding
+  async getHolding(userAddress, tokenAddress) {
+    const { data, error } = await supabase
+      .from('bonding_holdings')
+      .select('*')
+      .eq('holder_address', userAddress)
+      .eq('token_address', tokenAddress)
+      .single()
+
+    if (error) {
+      if (error.code === 'PGRST116') return null // No holding found
+      throw error
+    }
+    return data
+  },
+
+  // Update or create holding
+  async upsertHolding(tokenAddress, holderAddress, balanceChange) {
+    // First get current balance
+    const current = await this.getHolding(holderAddress, tokenAddress)
+    const currentBalance = current ? parseFloat(current.balance) : 0
+    const newBalance = currentBalance + balanceChange
+
+    if (newBalance <= 0) {
+      // Delete holding if balance is 0 or negative
+      const { error } = await supabase
+        .from('bonding_holdings')
+        .delete()
+        .eq('holder_address', holderAddress)
+        .eq('token_address', tokenAddress)
+
+      if (error) throw error
+      return { balance: 0 }
+    }
+
+    // Upsert holding
+    const { data, error } = await supabase
+      .from('bonding_holdings')
+      .upsert({
+        token_address: tokenAddress,
+        holder_address: holderAddress,
+        balance: newBalance,
+        updated_at: new Date().toISOString()
+      }, {
+        onConflict: 'token_address,holder_address'
+      })
+      .select()
+      .single()
+
+    if (error) throw error
+    return data
+  },
+
+  // Get total holders count for a token
+  async getHoldersCount(tokenAddress) {
+    const { count, error } = await supabase
+      .from('bonding_holdings')
+      .select('*', { count: 'exact', head: true })
+      .eq('token_address', tokenAddress)
+      .gt('balance', 0)
+
+    if (error) throw error
+    return count || 0
+  }
+}
+
+// Helper functions for wallet analysis
+export const WalletApi = {
+  // Get wallet flags
+  async getWalletFlags(walletAddress) {
+    const { data, error } = await supabase
+      .from('wallet_flags')
+      .select('*')
+      .eq('wallet_address', walletAddress)
+      .single()
+
+    if (error) {
+      if (error.code === 'PGRST116') return null // No flags found
+      throw error
+    }
+    return data
+  },
+
+  // Create or update wallet flags
+  async upsertWalletFlags(walletAddress, flags) {
+    const { data, error } = await supabase
+      .from('wallet_flags')
+      .upsert([{
+        wallet_address: walletAddress,
+        ...flags
+      }])
+      .select()
+      .single()
+
+    if (error) throw error
+    return data
+  }
+}
+
+// Helper functions for user favorites
+export const FavoritesApi = {
+  // Get user favorites
+  async getUserFavorites(userAddress) {
+    const { data, error } = await supabase
+      .from('user_favorites')
+      .select(`
+        *,
+        token:bonding_tokens!token_address(*)
+      `)
+      .eq('wallet_address', userAddress)
+      .order('added_at', { ascending: false })
+
+    if (error) throw error
+    return data
+  },
+
+  // Add favorite
+  async addFavorite(userAddress, tokenAddress) {
+    const { data, error } = await supabase
+      .from('user_favorites')
+      .insert([{
+        wallet_address: userAddress,
+        token_address: tokenAddress
+      }])
+      .select()
+      .single()
+
+    if (error) throw error
+    return data
+  },
+
+  // Remove favorite
+  async removeFavorite(userAddress, tokenAddress) {
+    const { error } = await supabase
+      .from('user_favorites')
+      .delete()
+      .eq('wallet_address', userAddress)
+      .eq('token_address', tokenAddress)
+
+    if (error) throw error
+    return true
+  },
+
+  // Check if favorited
+  async isFavorited(userAddress, tokenAddress) {
+    const { data, error } = await supabase
+      .from('user_favorites')
+      .select('id')
+      .eq('wallet_address', userAddress)
+      .eq('token_address', tokenAddress)
+      .single()
+
+    if (error) {
+      if (error.code === 'PGRST116') return false
+      throw error
+    }
+    return !!data
+  }
+}
+
+// Helper functions for price history
+export const PriceHistoryApi = {
+  // Get price history for a token
+  async getTokenPriceHistory(tokenAddress, hoursBack = 24) {
+    const cutoffTime = new Date(Date.now() - hoursBack * 60 * 60 * 1000).toISOString()
+
+    const { data, error } = await supabase
+      .from('price_history')
+      .select('*')
+      .eq('token_address', tokenAddress)
+      .gte('timestamp', cutoffTime)
+      .order('timestamp', { ascending: true })
+
+    if (error) throw error
+    return data
+  },
+
+  // Record price point
+  async recordPrice(tokenAddress, price, marketCap, volume) {
+    const { data, error } = await supabase
+      .from('price_history')
+      .insert([{
+        token_address: tokenAddress,
+        price,
+        market_cap: marketCap,
+        volume
+      }])
+      .select()
+      .single()
+
+    if (error) throw error
+    return data
+  }
+}
+
+// Subscribe to real-time updates
+export const subscribeToTokenUpdates = (tokenAddress, callback) => {
+  return supabase
+    .channel(`token:${tokenAddress}`)
+    .on(
+      'postgres_changes',
+      {
+        event: '*',
+        schema: 'public',
+        table: 'robots',
+        filter: `contract=eq.${tokenAddress}`
+      },
+      callback
+    )
+    .subscribe()
+}
+
+export const subscribeToNewTrades = (tokenAddress, callback) => {
+  return supabase
+    .channel(`trades:${tokenAddress}`)
+    .on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'trades',
+        filter: `contract=eq.${tokenAddress}`
+      },
+      callback
+    )
+    .subscribe()
+}
+
+export const subscribeToAllNewTokens = (callback) => {
+  return supabase
+    .channel('all-tokens')
+    .on(
+      'postgres_changes',
+      {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'robots'
+      },
+      callback
+    )
+    .subscribe()
+}

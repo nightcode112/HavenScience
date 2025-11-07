@@ -1,0 +1,13 @@
+[
+  { "type": "buy",  "timestamp": 1760965000, "user": "0x1091652514159829C444F98402f5911c974E231B", "ethIn": 0.42, "tokensOut": 125000, "usdSpent": 1200 },
+  { "type": "sell", "timestamp": 1760965120, "user": "0x3A9f3cA0d7e4B18bF1bE2A4C9A1D7aE2F19dB7fC", "tokensIn": 60000,  "ethOut": 0.19, "usdReceived": 540 },
+  { "type": "buy",  "timestamp": 1760965285, "user": "0x9b1cFAe2C8f4b7dA0f5F1a2C3b4D5e6F7a8B9c0D", "ethIn": 0.15, "tokensOut": 42000,  "usdSpent": 430 },
+  { "type": "buy",  "timestamp": 1760965410, "user": "0xA1b2C3d4E5f678901234567890abcdefABCDEF12", "ethIn": 0.80, "tokensOut": 250000, "usdSpent": 2200 },
+  { "type": "sell", "timestamp": 1760965600, "user": "0xBEEfBEEFbeefBEEFBeefbeEfBeefbEEfbeEFbEEF", "tokensIn": 100000, "ethOut": 0.33, "usdReceived": 910 },
+  { "type": "buy",  "timestamp": 1760965750, "user": "0xCcCCccccCCCCcCCCCCCcCcCccCcCCCcCcccccccC", "ethIn": 0.05, "tokensOut": 12000,  "usdSpent": 140 },
+  { "type": "sell", "timestamp": 1760965905, "user": "0xDEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF", "tokensIn": 8000,   "ethOut": 0.02, "usdReceived": 60 },
+  { "type": "buy",  "timestamp": 1760966040, "user": "0xFfFfFfFfFFffFFFFfFFfFFFFfFFffffFfFFFfFff", "ethIn": 1.25, "tokensOut": 360000, "usdSpent": 3400 },
+  { "type": "sell", "timestamp": 1760966210, "user": "0x1234567890abcdef1234567890ABCDEF12345678", "tokensIn": 45000,  "ethOut": 0.11, "usdReceived": 300 },
+  { "type": "buy",  "timestamp": 1760966395, "user": "0xaAaAaAaaAaAaAaaAaAAAAAaAAaAaaAaAaAaaAaaA", "ethIn": 0.22, "tokensOut": 64000,  "usdSpent": 620 }
+]
+

@@ -1,0 +1,26 @@
+{
+  "version": 2,
+  "installCommand": "npm install --legacy-peer-deps",
+  "functions": {
+    "api/robot/sim/load-simulation.js": {
+      "maxDuration": 60,
+      "memory": 1024
+    },
+    "api/ipfs/upload.js": {
+      "maxDuration": 60,
+      "memory": 512
+    }
+  },
+  "rewrites": [
+    { "source": "/api/robot/sim/load-simulation", "destination": "/api/robot/sim/load-simulation.js" },
+    { "source": "/api/robot/command/:simulation_id", "destination": "/api/robot/command/[simulation_id].js" },
+    { "source": "/api/robot/status/:simulation_id/:device_node", "destination": "/api/robot/status/[simulation_id]/[device_node].js" },
+    { "source": "/api/robot/robots/:wallet", "destination": "/api/robot/robots/[wallet].js" },
+    { "source": "/api/robot/robots", "destination": "/api/robot/robots.js" },
+    { "source": "/api/agents/(.*)", "destination": "https://havenserver.com/agents/$1" },
+    { "source": "/api/(.*)", "destination": "/api/$1" },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
+}
+
+

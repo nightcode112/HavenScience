@@ -1,0 +1,1186 @@
+import React, { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
+import { useAccount } from 'wagmi'
+import { readContract, simulateContract, writeContract, waitForTransactionReceipt } from '@wagmi/core'
+import { config as wagmiConfig } from '../../wagmi'
+import TokenAbi from '../../contracts/abis/FullBondingCurveERC20XToken.json'
+import { formatUnits, parseUnits } from 'viem'
+import { CONTRACTS } from '../../utils/contracts'
+import {
+  ArrowLeft, Shield, Lock, AlertTriangle, TrendingUp, Copy,
+  ExternalLink, Activity, Settings, Share2, Search, Star, ChevronDown
+} from 'lucide-react'
+
+// Haven color theme
+const HAVEN_COLORS = {
+  primary: '#5854f4',
+  primaryHover: '#4c46e8',
+  primaryLight: '#7c7cf6',
+  success: '#22c55e',
+  danger: '#ef4444',
+  warning: '#f59e0b',
+  background: '#0f1419',
+  surface: '#1a1f2e',
+  elevated: '#252d3f',
+  border: '#374151',
+  textPrimary: '#ffffff',
+  textSecondary: '#9ca3af',
+  textMuted: '#6b7280'
+}
+
+const formatNumber = (num) => {
+  if (!num || isNaN(num)) return '0'
+  if (num >= 1000000) return `${(num / 1000000).toFixed(2)}M`
+  if (num >= 1000) return `${(num / 1000).toFixed(2)}K`
+  return num.toFixed(2)
+}
+
+// Trading helper functions
+const SLIPPAGE_BPS = 100n
+const ERC20_ABI_MIN = [
+  { type: 'function', name: 'decimals', stateMutability: 'view', inputs: [], outputs: [{ name: '', type: 'uint8' }] },
+  { type: 'function', name: 'allowance', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }, { name: 'spender', type: 'address' }], outputs: [{ name: '', type: 'uint256' }] },
+  { type: 'function', name: 'approve', stateMutability: 'nonpayable', inputs: [{ name: 'spender', type: 'address' }, { name: 'amount', type: 'uint256' }], outputs: [{ name: '', type: 'bool' }] },
+]
+
+const applySlippage = (value) => {
+  if (typeof value !== 'bigint' || value <= 0n) return 0n
+  const reduction = (value * SLIPPAGE_BPS) / 10000n
+  const result = value - reduction
+  return result > 0n ? result : 0n
+}
+
+const toBigIntSafe = (value) => {
+  if (typeof value === 'bigint') return value
+  try { return BigInt(value || 0) } catch { return 0n }
+}
+
+const formatTokenAmount = (value, decimals = 18) => {
+  try {
+    const amount = Number(formatUnits(value || 0n, decimals))
+    if (!Number.isFinite(amount)) return '0'
+    if (amount >= 1_000) return amount.toLocaleString(undefined, { maximumFractionDigits: 2 })
+    if (amount >= 1) return amount.toFixed(2)
+    if (amount >= 0.01) return amount.toFixed(4)
+    return amount.toPrecision(3)
+  } catch {
+    return '0'
+  }
+}
+
+export default function HavenTokenDetail({ robot, onClose }) {
+  const params = useParams()
+  const navigate = useNavigate()
+  const { address: walletAddress, isConnected } = useAccount()
+  const chartContainerRef = useRef(null)
+  const chartRef = useRef(null)
+  const [candleData, setCandleData] = useState([])
+  const [isChartLoading, setIsChartLoading] = useState(true)
+  const isInitializingRef = useRef(false)
+  const hasInitializedRef = useRef(false)
+  const [tradeAmount, setTradeAmount] = useState('100')
+  const [tradeMode, setTradeMode] = useState('buy')
+  const [orderType, setOrderType] = useState('market')
+  const [limitPrice, setLimitPrice] = useState('')
+  const [priceAdjustment, setPriceAdjustment] = useState(0)
+  const [isFavorite, setIsFavorite] = useState(false)
+  const [isPoolInfoExpanded, setIsPoolInfoExpanded] = useState(true)
+  const [isDegenAuditExpanded, setIsDegenAuditExpanded] = useState(true)
+  const [activeTab, setActiveTab] = useState('trades')
+  const [activeFilter, setActiveFilter] = useState('All')
+
+  // Use passed robot prop or fetch from params
+  const tokenData = robot || {}
+  const address = tokenData?.contractAddress || params?.address
+
+  const toggleFavorite = useCallback(() => {
+    if (!address) return
+    const favorites = JSON.parse(localStorage.getItem('favorite_tokens') || '[]')
+    const addressLower = address.toLowerCase()
+
+    if (favorites.includes(addressLower)) {
+      const updated = favorites.filter((addr) => addr !== addressLower)
+      localStorage.setItem('favorite_tokens', JSON.stringify(updated))
+      setIsFavorite(false)
+    } else {
+      favorites.push(addressLower)
+      localStorage.setItem('favorite_tokens', JSON.stringify(favorites))
+      setIsFavorite(true)
+    }
+  }, [address])
+
+  const handleTrade = useCallback(async () => {
+    try {
+      if (!isConnected || !walletAddress) {
+        alert('Please connect your wallet first')
+        return
+      }
+
+      const numericAmount = parseFloat(tradeAmount)
+      if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+        alert('Please enter a valid amount')
+        return
+      }
+
+      const tokenAddress = address
+      if (!tokenAddress) {
+        alert('Token address not found')
+        return
+      }
+
+      const tokenLabel = tokenData.symbol || tokenData.ticker || 'TKN'
+
+      // Get token decimals
+      let tokenDecimals = 18
+      try {
+        const decimals = await readContract(wagmiConfig, {
+          abi: TokenAbi,
+          address: tokenAddress,
+          functionName: 'decimals'
+        })
+        const parsed = Number(decimals)
+        if (Number.isFinite(parsed) && parsed > 0) tokenDecimals = parsed
+      } catch {
+        tokenDecimals = 18
+      }
+
+      if (tradeMode === 'buy') {
+        // Buy logic
+        const xTokenAmount = parseUnits(String(numericAmount), 18)
+        if (xTokenAmount <= 0n) {
+          alert('Amount too small to buy')
+          return
+        }
+
+        const preview = await readContract(wagmiConfig, {
+          abi: TokenAbi,
+          address: tokenAddress,
+          functionName: 'previewBuy',
+          args: [xTokenAmount],
+        })
+
+        const tokensOut = toBigIntSafe(preview?.tokensOut ?? (Array.isArray(preview) ? preview[0] : 0n))
+        if (tokensOut <= 0n) {
+          alert('Quote unavailable for this amount')
+          return
+        }
+
+        const minTokensOut = applySlippage(tokensOut)
+
+        // Check allowance
+        const currentAllowance = await readContract(wagmiConfig, {
+          abi: ERC20_ABI_MIN,
+          address: CONTRACTS.xtoken.address,
+          functionName: 'allowance',
+          args: [walletAddress, tokenAddress],
+        }).catch(() => 0n)
+
+        if (currentAllowance < xTokenAmount) {
+          alert('Approving XTOKEN... Please confirm in your wallet')
+          const maxUint = (2n ** 256n) - 1n
+          const approveSim = await simulateContract(wagmiConfig, {
+            abi: ERC20_ABI_MIN,
+            address: CONTRACTS.xtoken.address,
+            functionName: 'approve',
+            args: [tokenAddress, maxUint],
+          })
+          const approveHash = await writeContract(wagmiConfig, approveSim.request)
+          alert('Approval sent. Waiting for confirmation...')
+          await waitForTransactionReceipt(wagmiConfig, { hash: approveHash })
+        }
+
+        alert('Confirm buy in your wallet...')
+        const sim = await simulateContract(wagmiConfig, {
+          abi: TokenAbi,
+          address: tokenAddress,
+          functionName: 'buy',
+          args: [xTokenAmount, minTokensOut],
+        })
+        const hash = await writeContract(wagmiConfig, sim.request)
+        alert('Transaction sent. Waiting for confirmation...')
+        await waitForTransactionReceipt(wagmiConfig, { hash })
+
+        try { window.dispatchEvent(new Event('haven:refresh-balance')) } catch {}
+
+        const tokenAmountLabel = formatTokenAmount(tokensOut, tokenDecimals)
+        alert(`Successfully bought ~${tokenAmountLabel} ${tokenLabel}!`)
+      } else {
+        // Sell logic
+        const tokenAmount = parseUnits(String(numericAmount), tokenDecimals)
+        if (tokenAmount <= 0n) {
+          alert('Amount too small to sell')
+          return
+        }
+
+        const preview = await readContract(wagmiConfig, {
+          abi: TokenAbi,
+          address: tokenAddress,
+          functionName: 'previewSell',
+          args: [tokenAmount],
+        })
+
+        const xTokenOut = toBigIntSafe(preview?.xTokenOut ?? (Array.isArray(preview) ? preview[0] : 0n))
+        const minXTokenOut = applySlippage(xTokenOut)
+
+        // Check allowance
+        const currentAllowance = await readContract(wagmiConfig, {
+          abi: TokenAbi,
+          address: tokenAddress,
+          functionName: 'allowance',
+          args: [walletAddress, tokenAddress]
+        })
+
+        if (currentAllowance < tokenAmount) {
+          alert('Approving tokens... Please confirm in your wallet')
+          const maxUint = (2n ** 256n) - 1n
+          const simApprove = await simulateContract(wagmiConfig, {
+            abi: TokenAbi,
+            address: tokenAddress,
+            functionName: 'approve',
+            args: [tokenAddress, maxUint],
+          })
+          const approveHash = await writeContract(wagmiConfig, simApprove.request)
+          alert('Approval sent. Waiting for confirmation...')
+          await waitForTransactionReceipt(wagmiConfig, { hash: approveHash })
+        }
+
+        alert('Confirm sell in your wallet...')
+        const simSell = await simulateContract(wagmiConfig, {
+          abi: TokenAbi,
+          address: tokenAddress,
+          functionName: 'sell',
+          args: [tokenAmount, minXTokenOut],
+        })
+        const sellHash = await writeContract(wagmiConfig, simSell.request)
+        alert('Transaction sent. Waiting for confirmation...')
+        await waitForTransactionReceipt(wagmiConfig, { hash: sellHash })
+
+        try { window.dispatchEvent(new Event('haven:refresh-balance')) } catch {}
+
+        alert(`Successfully sold ${numericAmount} ${tokenLabel}!`)
+      }
+    } catch (error) {
+      console.error('Trade error:', error)
+      const msg = error?.shortMessage || error?.message || 'Transaction failed'
+      alert(msg)
+    }
+  }, [tradeAmount, tradeMode, orderType, isConnected, walletAddress, address, tokenData])
+
+  const bondingCurveProgress = tokenData?.progress || 0
+  const priceChanges = {
+    m5: tokenData?.priceChange5m || 0,
+    h1: tokenData?.priceChange1h || 0,
+    h6: tokenData?.priceChange6h || 0,
+    h24: tokenData?.priceChange24h || 0
+  }
+
+  // Convert trades to OHLC data
+  const convertTradesToOHLC = useCallback((trades, intervalMinutes = 5) => {
+    if (!trades || trades.length === 0) return []
+
+    console.log(`Converting ${trades.length} trades to OHLC with ${intervalMinutes}min intervals`)
+
+    // Log first trade to see its structure
+    if (trades.length > 0) {
+      console.log('First trade object structure:', Object.keys(trades[0]))
+      console.log('First trade sample:', trades[0])
+    }
+
+    // Sort trades by timestamp
+    const sortedTrades = trades.sort((a, b) => {
+      // Handle timestamp as either Unix timestamp (seconds) or ISO string
+      const timeA = typeof a.timestamp === 'number' ? a.timestamp * 1000 : new Date(a.timestamp || a.created_at).getTime()
+      const timeB = typeof b.timestamp === 'number' ? b.timestamp * 1000 : new Date(b.timestamp || b.created_at).getTime()
+      return timeA - timeB
+    })
+
+    // Group trades into time intervals
+    const intervals = new Map()
+    const intervalMs = intervalMinutes * 60 * 1000
+
+    sortedTrades.forEach(trade => {
+      // Handle timestamp as either Unix timestamp (seconds) or ISO string
+      const timestamp = typeof trade.timestamp === 'number'
+        ? trade.timestamp * 1000
+        : new Date(trade.timestamp || trade.created_at).getTime()
+      const intervalStart = Math.floor(timestamp / intervalMs) * intervalMs
+
+      if (!intervals.has(intervalStart)) {
+        intervals.set(intervalStart, [])
+      }
+      intervals.get(intervalStart).push(trade)
+    })
+
+    // Generate OHLC candles
+    const ohlcData = []
+    // Calculate initial price from first trade
+    const firstTrade = sortedTrades[0]
+    let lastPrice = 0.000018 // fallback
+    if (firstTrade) {
+      if (firstTrade.type === 'buy') {
+        const ethAmount = parseFloat(firstTrade.ethIn || 0) / 1e18
+        const tokenAmount = parseFloat(firstTrade.tokensOut || 1)
+        lastPrice = ethAmount / tokenAmount
+      } else {
+        const ethAmount = parseFloat(firstTrade.ethOut || 0) / 1e18
+        const tokenAmount = parseFloat(firstTrade.tokensIn || 1)
+        lastPrice = ethAmount / tokenAmount
+      }
+    }
+
+    // Sort intervals by time
+    const sortedIntervals = Array.from(intervals.entries()).sort((a, b) => a[0] - b[0])
+
+    for (const [intervalStart, tradesInInterval] of sortedIntervals) {
+      // Calculate price for each trade: price = (ethIn or ethOut) / (tokensOut or tokensIn)
+      const prices = tradesInInterval.map(t => {
+        if (t.type === 'buy') {
+          // Buy: price = ethIn / tokensOut (ETH per token)
+          const ethAmount = parseFloat(t.ethIn || 0) / 1e18
+          const tokenAmount = parseFloat(t.tokensOut || 1)
+          return ethAmount / tokenAmount
+        } else {
+          // Sell: price = ethOut / tokensIn (ETH per token)
+          const ethAmount = parseFloat(t.ethOut || 0) / 1e18
+          const tokenAmount = parseFloat(t.tokensIn || 1)
+          return ethAmount / tokenAmount
+        }
+      })
+
+      // Calculate volume in ETH
+      const volumes = tradesInInterval.map(t => {
+        const ethAmount = t.ethIn || t.ethOut || t.eth_amount || '0'
+        return parseFloat(ethAmount) / 1e18
+      })
+
+      if (prices.length === 0 || prices.every(p => p === 0 || !isFinite(p))) continue
+
+      // Open should be the price BEFORE trades in this interval
+      const open = lastPrice
+      const close = prices[prices.length - 1]
+      const high = Math.max(...prices, open, close)
+      const low = Math.min(...prices.filter(p => p > 0), open, close)
+      const volume = volumes.reduce((sum, v) => sum + v, 0)
+
+      // Ensure OHLC relationships are correct
+      const validHigh = Math.max(open, close, high)
+      const validLow = Math.min(open, close, low > 0 ? low : Math.min(open, close))
+
+      ohlcData.push({
+        time: Math.floor(intervalStart / 1000), // Convert to seconds
+        open,
+        high: validHigh,
+        low: validLow,
+        close,
+        volume: Math.max(volume, 0.001)
+      })
+
+      lastPrice = close
+    }
+
+    // If we have very few candles but some real data, create minimal chart
+    if (ohlcData.length < 10 && ohlcData.length > 0) {
+      console.log(`Creating minimal chart with ${ohlcData.length} real trade candles`)
+
+      const firstCandle = ohlcData[0]
+      const lastCandle = ohlcData[ohlcData.length - 1]
+
+      const interpolatedData = [...ohlcData]
+
+      // Add a point before first trade
+      interpolatedData.unshift({
+        time: firstCandle.time - 300,
+        open: firstCandle.open,
+        high: firstCandle.high,
+        low: firstCandle.low,
+        close: firstCandle.open,
+        volume: 0.001
+      })
+
+      // Add a point after last trade
+      interpolatedData.push({
+        time: lastCandle.time + 300,
+        open: lastCandle.close,
+        high: lastCandle.close,
+        low: lastCandle.close,
+        close: lastCandle.close,
+        volume: 0.001
+      })
+
+      return interpolatedData.sort((a, b) => a.time - b.time)
+    }
+
+    console.log(`Generated ${ohlcData.length} valid OHLC candles`)
+    return ohlcData
+  }, [])
+
+  // Generate fallback data when no trades exist
+  const generateFallbackData = useCallback(() => {
+    console.log('No real trades found, generating minimal fallback chart')
+
+    const now = Math.floor(Date.now() / 1000)
+    const currentPrice = 0.0000188
+
+    return [
+      {
+        time: now - 600,
+        open: currentPrice,
+        high: currentPrice,
+        low: currentPrice,
+        close: currentPrice,
+        volume: 0.001
+      },
+      {
+        time: now - 300,
+        open: currentPrice,
+        high: currentPrice,
+        low: currentPrice,
+        close: currentPrice,
+        volume: 0.001
+      },
+      {
+        time: now,
+        open: currentPrice,
+        high: currentPrice,
+        low: currentPrice,
+        close: currentPrice,
+        volume: 0.001
+      }
+    ]
+  }, [])
+
+  // Fetch candle data from bonding curve trades
+  const fetchCandleData = useCallback(async () => {
+    try {
+      console.log('Fetching trades data for chart from API...')
+
+      const response = await fetch(`/api/blockchain/trade_history`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ contract_address: address })
+      })
+
+      if (!response.ok) {
+        throw new Error(`API returned ${response.status}: ${response.statusText}`)
+      }
+
+      const trades = await response.json()
+      console.log(`Received ${trades?.length || 0} trades for chart generation`)
+
+      let ohlcData = []
+
+      if (!trades || trades.length === 0) {
+        console.log('No trades found, using fallback data')
+        ohlcData = generateFallbackData()
+      } else {
+        ohlcData = convertTradesToOHLC(trades)
+        console.log(`Generated ${ohlcData.length} OHLC candles from trades`)
+
+        if (ohlcData.length === 0) {
+          console.log('No OHLC data generated, using fallback')
+          ohlcData = generateFallbackData()
+        }
+      }
+
+      setCandleData(ohlcData)
+      console.log(`Chart data set: ${ohlcData.length} candles`)
+      return ohlcData.length > 0
+    } catch (error) {
+      console.error('Error fetching trades for chart:', error)
+      const fallbackData = generateFallbackData()
+      setCandleData(fallbackData)
+      return fallbackData.length > 0
+    }
+  }, [address, convertTradesToOHLC, generateFallbackData])
+
+  // Initialize TradingView chart
+  const initializeChart = useCallback(async () => {
+    console.log('initializeChart called, checking conditions...')
+
+    const chartElement = chartContainerRef.current
+
+    if (!chartElement) {
+      console.log('No chart container found')
+      return
+    }
+
+    if (candleData.length === 0) {
+      console.log('No candle data available')
+      return
+    }
+
+    console.log('Found chart container, proceeding with initialization')
+
+    try {
+      console.log('Initializing TradingView chart with', candleData.length, 'candles')
+
+      if (!window.TradingView) {
+        console.error('TradingView library not loaded')
+        setIsChartLoading(false)
+        return
+      }
+
+      chartElement.innerHTML = '' // Clear any existing content
+
+      // Ensure container has proper dimensions
+      const containerWidth = chartElement.clientWidth || 800
+      const containerHeight = chartElement.clientHeight || 500
+
+      console.log(`Chart dimensions: ${containerWidth}x${containerHeight}`)
+
+      if (containerWidth < 100 || containerHeight < 100) {
+        console.error('Chart container too small:', { containerWidth, containerHeight })
+        setTimeout(() => initializeChart(), 200)
+        return
+      }
+
+      // Convert candle data to TradingView format
+      const tvData = candleData
+        .filter(candle => {
+          return candle.time > 0 &&
+                 candle.open > 0 &&
+                 candle.high > 0 &&
+                 candle.low > 0 &&
+                 candle.close > 0 &&
+                 candle.high >= Math.max(candle.open, candle.close) &&
+                 candle.low <= Math.min(candle.open, candle.close)
+        })
+        .map(candle => ({
+          time: candle.time * 1000, // TradingView expects milliseconds
+          open: candle.open,
+          high: candle.high,
+          low: candle.low,
+          close: candle.close,
+          volume: candle.volume
+        }))
+        .sort((a, b) => a.time - b.time)
+
+      console.log(`Prepared ${tvData.length} candles for TradingView`)
+
+      if (tvData.length === 0) {
+        chartElement.innerHTML = '<div style="color: white; text-align: center; padding: 20px;">No valid data to display</div>'
+        setIsChartLoading(false)
+        return
+      }
+
+      const tokenSymbol = tokenData.symbol || tokenData.ticker || 'TKN'
+
+      // Create a datafeed for TradingView
+      const datafeed = {
+        onReady: (callback) => {
+          console.log('TradingView datafeed ready')
+          setTimeout(() => callback({
+            exchanges: [],
+            symbols_types: [],
+            supported_resolutions: ['1', '5', '15', '30', '60', '240', '1D'],
+            supports_marks: false,
+            supports_timescale_marks: false,
+          }), 0)
+        },
+
+        searchSymbols: (userInput, exchange, symbolType, onResultReadyCallback) => {
+          console.log('TradingView search symbols')
+          onResultReadyCallback([])
+        },
+
+        resolveSymbol: (symbolName, onSymbolResolvedCallback, onResolveErrorCallback) => {
+          console.log('TradingView resolve symbol:', symbolName)
+          const symbolInfo = {
+            name: symbolName,
+            description: `${tokenSymbol} Token`,
+            type: 'crypto',
+            session: '24x7',
+            timezone: 'Etc/UTC',
+            ticker: symbolName,
+            minmov: 1,
+            pricescale: 1000000, // 6 decimal places
+            has_intraday: true,
+            supported_resolutions: ['1', '5', '15', '30', '60', '240', '1D'],
+            volume_precision: 2,
+            data_status: 'streaming',
+          }
+          setTimeout(() => onSymbolResolvedCallback(symbolInfo), 0)
+        },
+
+        getBars: (symbolInfo, resolution, from, to, onHistoryCallback, onErrorCallback, firstDataRequest) => {
+          console.log('TradingView getBars called', { from, to, resolution })
+
+          // Filter data by time range
+          const filteredData = tvData
+            .filter(bar => bar.time >= from * 1000 && bar.time <= to * 1000)
+            .map(bar => ({
+              time: bar.time,
+              open: bar.open,
+              high: bar.high,
+              low: bar.low,
+              close: bar.close,
+              volume: bar.volume
+            }))
+
+          console.log(`Returning ${filteredData.length} bars to TradingView`)
+          setTimeout(() => onHistoryCallback(filteredData, { noData: filteredData.length === 0 }), 0)
+        },
+
+        subscribeBars: (symbolInfo, resolution, onRealtimeCallback, subscribeUID, onResetCacheNeededCallback) => {
+          console.log('TradingView subscribeBars')
+          // No real-time updates for now
+        },
+
+        unsubscribeBars: (subscribeUID) => {
+          console.log('TradingView unsubscribeBars')
+        }
+      }
+
+      // Create TradingView widget
+      console.log('Creating TradingView widget...')
+
+      // Add unique ID to container
+      const cleanAddress = address.replace(/[^a-zA-Z0-9]/g, '_')
+      const containerId = `tradingview_${cleanAddress}`
+
+      chartElement.id = containerId
+      console.log(`Container ID set to: ${containerId}`)
+
+      // Ensure the element is fully registered in the DOM before TradingView accesses it
+      // This prevents the "There is no such element - #" error
+      await new Promise(resolve => {
+        // Force a reflow to ensure DOM is updated
+        chartElement.offsetHeight
+
+        // Use requestAnimationFrame to ensure the DOM update is complete
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            resolve()
+          })
+        })
+      })
+
+      // Verify element is accessible by getElementById before creating widget
+      const verifyElement = document.getElementById(containerId)
+      if (!verifyElement) {
+        console.error(`Failed to find element with ID: ${containerId}`)
+        setIsChartLoading(false)
+        return
+      }
+      console.log(`Verified container element exists in DOM: ${containerId}`)
+
+      const widget = new window.TradingView.widget({
+        container_id: containerId,
+        width: containerWidth,
+        height: containerHeight,
+        symbol: address,
+        interval: '5',
+        datafeed: datafeed,
+        library_path: '/charting_library/',
+        locale: 'en',
+        disabled_features: [
+          'header_symbol_search',
+          'header_saveload',
+          'study_templates',
+          'header_compare',
+          'header_screenshot',
+          'header_fullscreen_button'
+        ],
+        enabled_features: [],
+        charts_storage_url: undefined,
+        charts_storage_api_version: '1.1',
+        client_id: 'tradingview.com',
+        user_id: 'public_user_id',
+        fullscreen: false,
+        autosize: true,
+        theme: 'dark',
+        style: '1', // Candlestick style
+        toolbar_bg: HAVEN_COLORS.surface,
+        overrides: {
+          'paneProperties.background': HAVEN_COLORS.background,
+          'paneProperties.vertGridProperties.color': HAVEN_COLORS.border,
+          'paneProperties.horzGridProperties.color': HAVEN_COLORS.border,
+          'symbolWatermarkProperties.transparency': 90,
+          'scalesProperties.textColor': HAVEN_COLORS.textPrimary
+        }
+      })
+
+      chartRef.current = widget
+      setIsChartLoading(false)
+      hasInitializedRef.current = true
+
+      console.log('TradingView chart initialized successfully')
+    } catch (error) {
+      console.error('Error initializing TradingView chart:', error)
+      setIsChartLoading(false)
+    }
+  }, [address, candleData, tokenData])
+
+  // Load TradingView library
+  useEffect(() => {
+    if (window.TradingView) {
+      console.log('TradingView library already loaded')
+      return
+    }
+
+    console.log('Loading TradingView library from public folder...')
+    const script = document.createElement('script')
+    script.src = '/charting_library/charting_library.standalone.js'
+    script.onload = () => {
+      console.log('TradingView library loaded successfully')
+    }
+    script.onerror = () => {
+      console.error('Failed to load TradingView library from public folder')
+      setIsChartLoading(false)
+    }
+    document.head.appendChild(script)
+
+    return () => {
+      // Cleanup script tag if needed
+    }
+  }, [])
+
+  // Fetch candleData when address changes
+  useEffect(() => {
+    if (address) {
+      console.log('Starting data fetch for:', address)
+      fetchCandleData()
+    }
+  }, [address, fetchCandleData])
+
+  // Initialize chart when data is available
+  useEffect(() => {
+    if (!address || candleData.length === 0) {
+      return
+    }
+
+    // Prevent multiple initializations
+    if (isInitializingRef.current || hasInitializedRef.current) {
+      console.log('Chart initialization already in progress or completed')
+      return
+    }
+
+    console.log('Chart data available, starting initialization...')
+    isInitializingRef.current = true
+
+    // Use a timeout to ensure DOM is stable
+    const initTimeout = setTimeout(() => {
+      if (window.TradingView && !hasInitializedRef.current) {
+        initializeChart()
+      }
+    }, 100)
+
+    return () => {
+      clearTimeout(initTimeout)
+      if (chartRef.current && chartRef.current.remove) {
+        try {
+          chartRef.current.remove()
+        } catch (error) {
+          console.log('Chart cleanup error:', error)
+        }
+      }
+    }
+  }, [address, candleData.length, initializeChart])
+
+  return (
+    <div
+      className="h-screen text-white flex flex-col overflow-hidden"
+      style={{backgroundColor: HAVEN_COLORS.background}}
+    >
+      {/* Main Content Area */}
+      <div className="flex-1 overflow-hidden flex">
+        {/* Left - Chart and Trades */}
+        <div className="flex-1 flex flex-col h-full overflow-hidden">
+          {/* Chart Area */}
+          <div className="flex-1 flex flex-col h-full overflow-hidden">
+            {/* Token Summary Header */}
+            <div className="px-4 py-3 shrink-0" style={{
+              backgroundColor: HAVEN_COLORS.surface,
+              borderBottom: `1px solid ${HAVEN_COLORS.border}`
+            }}>
+              <div className="flex items-center justify-between gap-6">
+                {/* Left: Token Info */}
+                <div className="flex items-center gap-3">
+                  <div className="relative flex-shrink-0">
+                    <div className="w-10 h-10 rounded-full flex items-center justify-center"
+                         style={{
+                           background: `linear-gradient(to bottom right, ${HAVEN_COLORS.primary}, ${HAVEN_COLORS.primaryLight})`
+                         }}>
+                      <span className="text-white font-bold text-base">
+                        {tokenData.symbol?.[0] || tokenData.ticker?.[0] || '?'}
+                      </span>
+                    </div>
+                    <button
+                      onClick={toggleFavorite}
+                      className="absolute -top-1 -right-1 p-0.5 rounded-full hover:bg-opacity-100 transition-colors"
+                      style={{backgroundColor: `${HAVEN_COLORS.background}e6`}}
+                    >
+                      <Star
+                        className={`w-3.5 h-3.5 ${isFavorite ? 'fill-yellow-400 text-yellow-400' : 'text-gray-400 hover:text-yellow-400'} transition-colors`}
+                      />
+                    </button>
+                  </div>
+
+                  <div className="flex flex-col gap-0.5">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg font-bold text-white">
+                        {tokenData.symbol || tokenData.ticker || 'TKN'}
+                      </span>
+                      <span className="text-sm text-gray-400">{tokenData.name || 'Robot Token'}</span>
+
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(address)
+                          // Toast notification
+                        }}
+                        className="p-1 rounded transition-colors hover:bg-opacity-20"
+                        style={{hover: {backgroundColor: HAVEN_COLORS.surface}}}
+                      >
+                        <Copy className="w-3.5 h-3.5 text-gray-500" />
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          navigator.clipboard.writeText(window.location.href)
+                        }}
+                        className="p-1 rounded transition-colors"
+                        title="Share robot link"
+                      >
+                        <Share2 className="w-3.5 h-3.5 text-gray-500" />
+                      </button>
+
+                      <button
+                        onClick={() => window.open(`https://etherscan.io/token/${address}`, '_blank')}
+                        className="p-1 rounded transition-colors"
+                        title="View on Etherscan"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5 text-gray-500" />
+                      </button>
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-[10px] text-gray-500">
+                        {tokenData.timeAgo || 'New'}
+                      </span>
+                      <span className="text-[10px] text-gray-600">•</span>
+                      <span className="font-mono text-[10px] text-gray-400">
+                        {address?.slice(0, 6)}...{address?.slice(-4)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Center: Stats */}
+                <div className="flex-1 flex justify-center">
+                  <div className="px-6 py-3 rounded-2xl transition-all duration-300"
+                       style={{
+                         backgroundColor: HAVEN_COLORS.elevated,
+                         border: `1px solid ${HAVEN_COLORS.border}`
+                       }}>
+                    <div className="grid grid-cols-5 gap-6">
+                      <div className="text-center">
+                        <div className="text-gray-400 text-[10px] uppercase tracking-wider mb-1.5 font-semibold">MCap</div>
+                        <div className="text-white font-bold text-base leading-none">
+                          ${formatNumber(tokenData.marketCap || 0)}
+                        </div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-gray-400 text-[10px] uppercase tracking-wider mb-1.5 font-semibold">Price</div>
+                        <div className="text-white font-bold text-base leading-none">
+                          ${(tokenData.price || 0).toFixed(6)}
+                        </div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-gray-400 text-[10px] uppercase tracking-wider mb-1.5 font-semibold">Liq</div>
+                        <div className="text-white font-bold text-base leading-none">
+                          ${formatNumber(tokenData.liquidity || 0)}
+                        </div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-gray-400 text-[10px] uppercase tracking-wider mb-1.5 font-semibold">24h Vol</div>
+                        <div className="text-white font-bold text-base leading-none">
+                          ${formatNumber(tokenData.volume24h || 0)}
+                        </div>
+                      </div>
+                      <div className="text-center">
+                        <div className="text-gray-400 text-[10px] uppercase tracking-wider mb-1.5 font-semibold">Supply</div>
+                        <div className="text-white font-bold text-base leading-none">
+                          {formatNumber(tokenData.totalSupply || 0)}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right: Progress */}
+                <div className="flex items-center gap-4">
+                  <div className="flex flex-col items-end gap-1">
+                    <div className="text-xs text-gray-400 font-semibold">Progress</div>
+                    <div className="text-lg font-bold" style={{color: HAVEN_COLORS.primary}}>
+                      {bondingCurveProgress.toFixed(2)}%
+                    </div>
+                  </div>
+                  <div className="w-[500px] h-5 rounded-full overflow-hidden shadow-lg"
+                       style={{
+                         backgroundColor: HAVEN_COLORS.surface,
+                         border: `2px solid ${HAVEN_COLORS.border}`
+                       }}>
+                    <div
+                      className="h-full transition-all duration-500"
+                      style={{
+                        width: `${bondingCurveProgress}%`,
+                        background: `linear-gradient(to right, ${HAVEN_COLORS.primary}, ${HAVEN_COLORS.primaryLight})`
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Chart */}
+            <div
+              ref={chartContainerRef}
+              className="flex-1 relative overflow-hidden"
+              style={{backgroundColor: HAVEN_COLORS.background}}
+            />
+          </div>
+
+          {/* Bottom Tabs */}
+          <div className="flex flex-col h-64 overflow-hidden"
+               style={{
+                 backgroundColor: HAVEN_COLORS.surface,
+                 borderTop: `1px solid ${HAVEN_COLORS.border}`
+               }}>
+            {/* Tabs */}
+            <div className="flex items-center px-1" style={{borderBottom: `1px solid ${HAVEN_COLORS.border}`}}>
+              {[
+                { id: 'trades', label: 'Trades', icon: Activity },
+                { id: 'positions', label: 'Positions' },
+                { id: 'holders', label: 'Holders', count: 300 },
+              ].map(({ id, label, icon: Icon, count }) => (
+                <button
+                  key={id}
+                  onClick={() => setActiveTab(id)}
+                  className={`px-4 py-2 text-sm border-b-2 transition-colors`}
+                  style={{
+                    borderColor: activeTab === id ? HAVEN_COLORS.primary : 'transparent',
+                    color: activeTab === id ? 'white' : HAVEN_COLORS.textSecondary
+                  }}
+                >
+                  <div className="flex items-center gap-1.5">
+                    {Icon && <Icon className="w-4 h-4" />}
+                    {label}
+                    {count && <span className="text-gray-500">{count}</span>}
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            {/* Trades Table */}
+            <div className="flex-1 overflow-y-auto">
+              <div className="p-6 text-center text-gray-400 text-sm">
+                No trades to display
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Right Panel */}
+        <div className="w-80 flex flex-col overflow-y-auto h-full"
+             style={{backgroundColor: HAVEN_COLORS.surface}}>
+          {/* Trade Interface */}
+          <div className="p-3" style={{borderBottom: `1px solid ${HAVEN_COLORS.border}`}}>
+            {/* Price Changes */}
+            <div className="mb-2.5 pb-2.5" style={{borderBottom: `1px solid ${HAVEN_COLORS.border}80`}}>
+              <div className="rounded-xl p-2"
+                   style={{
+                     background: `linear-gradient(to bottom right, ${HAVEN_COLORS.elevated}99, ${HAVEN_COLORS.surface}99)`,
+                     border: `1px solid ${HAVEN_COLORS.border}66`
+                   }}>
+                <div className="grid grid-cols-4 gap-2">
+                  {[
+                    { label: '5m', value: priceChanges.m5 },
+                    { label: '1h', value: priceChanges.h1 },
+                    { label: '6h', value: priceChanges.h6 },
+                    { label: '24h', value: priceChanges.h24 }
+                  ].map(({ label, value }) => (
+                    <div key={label} className="text-center">
+                      <div className="text-[9px] text-gray-500 font-bold uppercase tracking-wide mb-0.5">{label}</div>
+                      <div
+                        className={`text-[11px] font-extrabold ${value >= 0 ? 'text-green-400' : 'text-red-400'}`}
+                      >
+                        {value >= 0 ? '+' : ''}{value.toFixed(2)}%
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Buy/Sell Toggle */}
+            <div className="space-y-1">
+              <div className="flex gap-0.5 p-0.5 rounded-full"
+                   style={{
+                     backgroundColor: `${HAVEN_COLORS.elevated}99`,
+                     border: `1px solid ${HAVEN_COLORS.border}80`
+                   }}>
+                <button
+                  onClick={() => setTradeMode('buy')}
+                  className={`flex-1 py-1 rounded-full font-bold text-[10px] transition-all duration-200`}
+                  style={{
+                    background: tradeMode === 'buy'
+                      ? `linear-gradient(to bottom right, ${HAVEN_COLORS.primary}, ${HAVEN_COLORS.primaryLight})`
+                      : 'transparent',
+                    color: tradeMode === 'buy' ? 'white' : HAVEN_COLORS.textSecondary
+                  }}
+                >
+                  Buy
+                </button>
+                <button
+                  onClick={() => setTradeMode('sell')}
+                  className={`flex-1 py-1 rounded-full font-bold text-[10px] transition-all duration-200`}
+                  style={{
+                    background: tradeMode === 'sell'
+                      ? 'linear-gradient(to bottom right, #ef4444, #f87171)'
+                      : 'transparent',
+                    color: tradeMode === 'sell' ? 'white' : HAVEN_COLORS.textSecondary
+                  }}
+                >
+                  Sell
+                </button>
+              </div>
+
+              {/* Market/Limit Toggle */}
+              <div className="flex items-center justify-between gap-1">
+                <div className="flex gap-0.5 p-0.5 rounded-full"
+                     style={{
+                       backgroundColor: `${HAVEN_COLORS.elevated}99`,
+                       border: `1px solid ${HAVEN_COLORS.border}80`
+                     }}>
+                  <button
+                    onClick={() => setOrderType('market')}
+                    className={`px-2 py-0.5 rounded-full text-[9px] font-bold transition-all duration-200`}
+                    style={{
+                      background: orderType === 'market'
+                        ? 'linear-gradient(to right, #3b82f6, #06b6d4)'
+                        : 'transparent',
+                      color: orderType === 'market' ? 'white' : HAVEN_COLORS.textSecondary
+                    }}
+                  >
+                    Market
+                  </button>
+                  <button
+                    onClick={() => setOrderType('limit')}
+                    className={`px-2 py-0.5 rounded-full text-[9px] font-bold transition-all duration-200`}
+                    style={{
+                      background: orderType === 'limit'
+                        ? 'linear-gradient(to right, #3b82f6, #06b6d4)'
+                        : 'transparent',
+                      color: orderType === 'limit' ? 'white' : HAVEN_COLORS.textSecondary
+                    }}
+                  >
+                    Limit
+                  </button>
+                </div>
+              </div>
+
+              {/* Amount Input */}
+              <div className="space-y-0.5">
+                <div className="flex items-center justify-between px-0.5">
+                  <span className="text-[8px] text-gray-400 font-semibold uppercase">Amount</span>
+                </div>
+                <div className="relative">
+                  <input
+                    type="number"
+                    value={tradeAmount}
+                    onChange={(e) => setTradeAmount(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full h-7 rounded-full text-white text-xs font-bold pr-12 focus:outline-none focus:ring-2 shadow-inner px-3"
+                    style={{
+                      background: `linear-gradient(to bottom right, ${HAVEN_COLORS.elevated}b3, ${HAVEN_COLORS.surface}b3)`,
+                      border: `1px solid ${HAVEN_COLORS.border}80`,
+                      focusRing: HAVEN_COLORS.primary
+                    }}
+                  />
+                  <div className="absolute right-1.5 top-1/2 -translate-y-1/2 px-1 py-0.5 rounded-full text-gray-400 text-[9px] font-bold"
+                       style={{backgroundColor: `${HAVEN_COLORS.surface}cc`}}>
+                    {tradeMode === 'buy' ? 'HAVEN' : tokenData.symbol || 'TKN'}
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Amount Buttons */}
+              <div className="grid grid-cols-4 gap-0.5">
+                {(tradeMode === 'buy'
+                  ? ['10', '50', '100', '500']
+                  : ['100', '500', '1000', '5000']
+                ).map(val => (
+                  <button
+                    key={val}
+                    onClick={() => setTradeAmount(val)}
+                    className="py-0.5 px-1 rounded-full text-[9px] font-bold text-gray-300 transition-all duration-150"
+                    style={{
+                      background: `linear-gradient(to bottom right, ${HAVEN_COLORS.surface}99, ${HAVEN_COLORS.elevated}99)`,
+                      border: `1px solid ${HAVEN_COLORS.border}80`
+                    }}
+                  >
+                    {val}
+                  </button>
+                ))}
+              </div>
+
+              {/* Percentage Buttons */}
+              <div className="grid grid-cols-4 gap-0.5">
+                {[
+                  { label: '25%', value: 0.25 },
+                  { label: '50%', value: 0.5 },
+                  { label: '75%', value: 0.75 },
+                  { label: 'MAX', value: 1 }
+                ].map(({ label, value }) => (
+                  <button
+                    key={label}
+                    onClick={() => setTradeAmount(String(100 * value))}
+                    className="py-0.5 px-1 rounded-full text-[9px] font-extrabold transition-all duration-150"
+                    style={{
+                      background: `linear-gradient(to bottom right, ${HAVEN_COLORS.primary}33, ${HAVEN_COLORS.primaryLight}33)`,
+                      border: `1px solid ${HAVEN_COLORS.primary}4d`,
+                      color: HAVEN_COLORS.primaryLight
+                    }}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Trade Button */}
+              <button
+                onClick={handleTrade}
+                className="w-full h-7 text-xs font-extrabold rounded-full transition-all duration-200"
+                style={{
+                  background: tradeMode === 'buy'
+                    ? `linear-gradient(to right, ${HAVEN_COLORS.primary}, ${HAVEN_COLORS.primaryLight})`
+                    : 'linear-gradient(to right, #ef4444, #f87171)',
+                  color: 'white'
+                }}
+              >
+                {tradeMode === 'buy' ? 'Buy' : 'Sell'} {tokenData.symbol || tokenData.ticker || 'Robot'}
+              </button>
+            </div>
+          </div>
+
+          {/* Security Stats */}
+          <div className="p-2.5" style={{borderBottom: `1px solid ${HAVEN_COLORS.border}80`}}>
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[11px] font-semibold text-white">Security</span>
+            </div>
+            <div className="grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
+              <div className="flex justify-between">
+                <span className="text-gray-400">Verified</span>
+                <span className="text-green-400">Yes ✓</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-400">Holders</span>
+                <span className="text-white">{tokenData.holdersCount || 0}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

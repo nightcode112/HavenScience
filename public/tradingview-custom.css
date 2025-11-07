@@ -1,0 +1,48 @@
+/* TradingView Custom Styling - Haven Theme */
+
+/* Target the specific TradingView toolbar classes */
+.fill-OhqNVIYA,
+.group-MBOVGQRI,
+.wrap-n5bmFxyX,
+#header-toolbar-intervals,
+.toolbar-BXXUwft2,
+.menuContent-S_1OCXUK {
+    background-color: #1a1f2e !important;
+}
+
+/* Target toolbar buttons and menus */
+.menu-b3Cgff6l,
+.menu-S_1OCXUK,
+.button-merBkM5y,
+.apply-common-tooltip,
+.isOpened-merBkM5y {
+    background-color: #1a1f2e !important;
+}
+
+/* Target separator classes */
+.separatorWrap-MBOVGQRI,
+.separator-xVhBjD5m,
+.separator-MBOVGQRI {
+    background-color: #1a1f2e !important;
+}
+
+/* Wildcard match for TradingView's hashed classes */
+[class*="fill-"],
+[class*="group-"],
+[class*="wrap-"],
+[class*="menu-"],
+[class*="menuContent-"],
+[class*="button-"],
+[class*="separator"],
+[class*="toolbar-"],
+[class*="isOpened-"] {
+    background-color: #1a1f2e !important;
+}
+
+/* Extra specific targeting for wrap and group elements */
+div.wrap-n5bmFxyX,
+span.wrap-n5bmFxyX,
+div.group-MBOVGQRI,
+span.group-MBOVGQRI {
+    background-color: #1a1f2e !important;
+}
