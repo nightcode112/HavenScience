@@ -18,10 +18,32 @@ A decentralized token launchpad with bonding curve mechanisms built on **BNB Sma
 
 ## Contract Addresses
 
-| Network  | Factory Contract | HAVEN Token | Router V2 | WBNB |
-|----------|------------------|-------------|-----------|------|
-| BNB Mainnet | 0x3DeF438082Abd8dbCf03bf58a8Ad1510eaFa4629 | 0x3c06AF089F1188c8357b29bDf9f98B36E51f7690 | 0x10ED43C718714eb63d5aA57B78B54704E256024E | 0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c |
-| BNB Testnet | TBD | TBD | TBD | 0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd |
+### Core Contracts (BNB Mainnet)
+
+| Contract | Address |
+|----------|---------|
+| **Router** | [0x6Ddd5E057112Bb89909Fb29c847E21f3cdEb0b83](https://bscscan.com/address/0x6Ddd5E057112Bb89909Fb29c847E21f3cdEb0b83) |
+| **HAVEN Factory** | [0x1F9592f6d9F5E0BB74f33E0383490889ff273d0F](https://bscscan.com/address/0x1F9592f6d9F5E0BB74f33E0383490889ff273d0F) |
+| **BNB Factory** | [0xACa75645477cc778Fea1F4676F13DcB4002a7A55](https://bscscan.com/address/0xACa75645477cc778Fea1F4676F13DcB4002a7A55) |
+| **HAVEN Token** | [0x0Cce89Fb7f51aDB16Cd1e18be58457a70F5D93e7](https://bscscan.com/address/0x0Cce89Fb7f51aDB16Cd1e18be58457a70F5D93e7) |
+| **Test Token (BNB)** | [0x619E5F39A2aaCB5b978384deF6e03D75543878E9](https://bscscan.com/address/0x619E5F39A2aaCB5b978384deF6e03D75543878E9) |
+
+### Helper Contracts
+
+| Contract | Address |
+|----------|---------|
+| **Graduation Helper (HAVEN)** | [0xa712C4cAf86Db9A081B01cc6BC2E161Ad4facde5](https://bscscan.com/address/0xa712C4cAf86Db9A081B01cc6BC2E161Ad4facde5) |
+| **Graduation Helper (BNB)** | [0xBBe87C5EA93D62f97564f8c00f8C22729Af502Ab](https://bscscan.com/address/0xBBe87C5EA93D62f97564f8c00f8C22729Af502Ab) |
+| **Address Predictor (HAVEN)** | [0x3652bb6275AE44603e0155F55298D5B1004D3151](https://bscscan.com/address/0x3652bb6275AE44603e0155F55298D5B1004D3151) |
+| **Address Predictor (BNB)** | [0x00d07083292f830905E97eDE6E76286299C436C8](https://bscscan.com/address/0x00d07083292f830905E97eDE6E76286299C436C8) |
+| **Deployer Library** | [0x1a581B32f0d2788f0ec25a4683A891e91Df988ba](https://bscscan.com/address/0x1a581B32f0d2788f0ec25a4683A891e91Df988ba) |
+
+### Standard Contracts
+
+| Contract | Address |
+|----------|---------|
+| **PancakeSwap Router V2** | [0x10ED43C718714eb63d5aA57B78B54704E256024E](https://bscscan.com/address/0x10ED43C718714eb63d5aA57B78B54704E256024E) |
+| **WBNB** | [0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c](https://bscscan.com/address/0xbb4CdB9CBd36B01bD1cBaEBF2De08d9173bc095c) |
 
 ## Features
 
