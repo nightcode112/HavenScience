@@ -177,10 +177,13 @@ This project is private and proprietary.
 
 ## Links
 
-- **Website**: [havenscience.xyz](https://havenscience.xyz)
-- **Twitter**: [@HavenScience](https://twitter.com/HavenScience)
-- **Telegram**: [t.me/HavenScience](https://t.me/HavenScience)
+- **Website**: [haven.science](https://haven.science/)
+- **Documentation**: [docs.haven.science](https://docs.haven.science/)
+- **Twitter**: [@HavenLabs_](https://x.com/HavenLabs_)
+- **Telegram**: [t.me/haven_labs](https://t.me/haven_labs)
+- **Discord**: [discord.gg/3bMDdEqf](https://discord.com/invite/3bMDdEqf)
+- **Linktree**: [linktr.ee/HavenLabs](https://linktr.ee/HavenLabs)
 
 ## Support
 
-For questions and support, please join our [Telegram community](https://t.me/HavenScience).
+For questions and support, please join our [Telegram community](https://t.me/haven_labs) or [Discord server](https://discord.com/invite/3bMDdEqf).
