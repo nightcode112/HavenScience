@@ -2,6 +2,7 @@
 
 A decentralized token launchpad with bonding curve mechanisms built on **BNB Smart Chain (BSC)** and compatible with other EVM networks.
 
+
 ## Technology Stack
 
 - **Blockchain**: BNB Smart Chain + EVM-compatible chains
