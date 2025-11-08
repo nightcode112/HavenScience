@@ -23,9 +23,9 @@ A decentralized token launchpad with bonding curve mechanisms built on **BNB Sma
 
 | Contract | Address |
 |----------|---------|
-| **Router** | [0x6Ddd5E057112Bb89909Fb29c847E21f3cdEb0b83](https://bscscan.com/address/0x6Ddd5E057112Bb89909Fb29c847E21f3cdEb0b83) |
-| **HAVEN Factory** | [0x1F9592f6d9F5E0BB74f33E0383490889ff273d0F](https://bscscan.com/address/0x1F9592f6d9F5E0BB74f33E0383490889ff273d0F) |
-| **BNB Factory** | [0xACa75645477cc778Fea1F4676F13DcB4002a7A55](https://bscscan.com/address/0xACa75645477cc778Fea1F4676F13DcB4002a7A55) |
+| **Router** | [0x26e442d47529091dd5e41c8e08c729cf4ee9f95d](https://bscscan.com/address/0x26e442d47529091dd5e41c8e08c729cf4ee9f95d) |
+| **HAVEN Factory** | [0xA82E806F3aee4C0e306fB4d989354F9e43Ff7dE4](https://bscscan.com/address/0xA82E806F3aee4C0e306fB4d989354F9e43Ff7dE4) |
+| **BNB Factory** | [0xaD6D411363b4271E30D84db226482Cd4B88eF428](https://bscscan.com/address/0xaD6D411363b4271E30D84db226482Cd4B88eF428) |
 | **HAVEN Token** | [0x0Cce89Fb7f51aDB16Cd1e18be58457a70F5D93e7](https://bscscan.com/address/0x0Cce89Fb7f51aDB16Cd1e18be58457a70F5D93e7) |
 | **Test Token (BNB)** | [0x619E5F39A2aaCB5b978384deF6e03D75543878E9](https://bscscan.com/address/0x619E5F39A2aaCB5b978384deF6e03D75543878E9) |
 
@@ -33,11 +33,11 @@ A decentralized token launchpad with bonding curve mechanisms built on **BNB Sma
 
 | Contract | Address |
 |----------|---------|
-| **Graduation Helper (HAVEN)** | [0xa712C4cAf86Db9A081B01cc6BC2E161Ad4facde5](https://bscscan.com/address/0xa712C4cAf86Db9A081B01cc6BC2E161Ad4facde5) |
-| **Graduation Helper (BNB)** | [0xBBe87C5EA93D62f97564f8c00f8C22729Af502Ab](https://bscscan.com/address/0xBBe87C5EA93D62f97564f8c00f8C22729Af502Ab) |
-| **Address Predictor (HAVEN)** | [0x3652bb6275AE44603e0155F55298D5B1004D3151](https://bscscan.com/address/0x3652bb6275AE44603e0155F55298D5B1004D3151) |
-| **Address Predictor (BNB)** | [0x00d07083292f830905E97eDE6E76286299C436C8](https://bscscan.com/address/0x00d07083292f830905E97eDE6E76286299C436C8) |
-| **Deployer Library** | [0x1a581B32f0d2788f0ec25a4683A891e91Df988ba](https://bscscan.com/address/0x1a581B32f0d2788f0ec25a4683A891e91Df988ba) |
+| **Graduation Helper (HAVEN)** | [0x7DaeDEBDeDCEDc1ce661F5d7bC7e4d801Ff08Bc2](https://bscscan.com/address/0x7DaeDEBDeDCEDc1ce661F5d7bC7e4d801Ff08Bc2) |
+| **Graduation Helper (BNB)** | [0x1AD23aEf94bBeD915a0F536E23B47ff773Daf218](https://bscscan.com/address/0x1AD23aEf94bBeD915a0F536E23B47ff773Daf218) |
+| **Address Predictor (HAVEN)** | [0x8a9cA2aC69c1E9bc6D5b74C98E3e03bECE12e27A](https://bscscan.com/address/0x8a9cA2aC69c1E9bc6D5b74C98E3e03bECE12e27A) |
+| **Address Predictor (BNB)** | [0x2DAbdb4235588608a64c97a3017Bf6E62C526017](https://bscscan.com/address/0x2DAbdb4235588608a64c97a3017Bf6E62C526017) |
+| **Deployer Library** | [0x00e2401a6C3d220e258B4998ebCF1D199b379a55](https://bscscan.com/address/0x00e2401a6C3d220e258B4998ebCF1D199b379a55) |
 
 ### Standard Contracts
 

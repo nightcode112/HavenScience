@@ -22,11 +22,6 @@
   },
   {
     "inputs": [],
-    "name": "ApproveFailed",
-    "type": "error"
-  },
-  {
-    "inputs": [],
     "name": "InsufficientOutput",
     "type": "error"
   },
@@ -106,34 +101,21 @@
         "type": "address"
       },
       {
+        "indexed": true,
+        "internalType": "address",
+        "name": "bondingCurveToken",
+        "type": "address"
+      },
+      {
         "indexed": false,
         "internalType": "uint256",
-        "name": "tradesCount",
+        "name": "bnbIn",
         "type": "uint256"
-      }
-    ],
-    "name": "BatchTradeExecuted",
-    "type": "event"
-  },
-  {
-    "anonymous": false,
-    "inputs": [
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "user",
-        "type": "address"
-      },
-      {
-        "indexed": true,
-        "internalType": "address",
-        "name": "token",
-        "type": "address"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "inputAmount",
+        "name": "havenSwapped",
         "type": "uint256"
       },
       {
@@ -141,12 +123,6 @@
         "internalType": "uint256",
         "name": "tokensOut",
         "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "string",
-        "name": "inputCurrency",
-        "type": "string"
       }
     ],
     "name": "BuyExecuted",
@@ -220,34 +196,52 @@
       {
         "indexed": true,
         "internalType": "address",
-        "name": "token",
+        "name": "bondingCurveToken",
         "type": "address"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "tokensIn",
+        "name": "bnbIn",
         "type": "uint256"
       },
       {
         "indexed": false,
         "internalType": "uint256",
-        "name": "outputAmount",
+        "name": "bnbRefunded",
         "type": "uint256"
       },
       {
         "indexed": false,
-        "internalType": "string",
-        "name": "outputCurrency",
-        "type": "string"
+        "internalType": "uint256",
+        "name": "tokensOut",
+        "type": "uint256"
       }
     ],
-    "name": "SellExecuted",
+    "name": "ExactBuyExecuted",
     "type": "event"
   },
   {
     "inputs": [
       {
+        "internalType": "address[]",
+        "name": "bondingCurveTokens",
+        "type": "address[]"
+      },
+      {
+        "internalType": "bool[]",
+        "name": "isWBNBArray",
+        "type": "bool[]"
+      }
+    ],
+    "name": "batchRegisterBondingCurveTypes",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "address",
         "name": "bondingCurveToken",
         "type": "address"
@@ -258,7 +252,7 @@
         "type": "uint256"
       }
     ],
-    "name": "batchBuyBondingCurveWithBNB",
+    "name": "buyBondingCurveTokenWithBNB",
     "outputs": [
       {
         "internalType": "uint256",
@@ -287,7 +281,7 @@
         "type": "uint256"
       }
     ],
-    "name": "batchBuyBondingCurveWithHAVEN",
+    "name": "buyBondingCurveTokenWithHAVEN",
     "outputs": [
       {
         "internalType": "uint256",
@@ -296,6 +290,40 @@
       }
     ],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "bondingCurveToken",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "exactTokensOut",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "maxSlippageBps",
+        "type": "uint256"
+      }
+    ],
+    "name": "buyExactTokensWithBNB",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "bnbSpent",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "bnbRefunded",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "payable",
     "type": "function"
   },
   {
@@ -311,7 +339,7 @@
         "type": "uint256"
       }
     ],
-    "name": "batchBuyGraduatedWithBNB",
+    "name": "buyGraduatedTokenWithBNB",
     "outputs": [
       {
         "internalType": "uint256",
@@ -340,127 +368,11 @@
         "type": "uint256"
       }
     ],
-    "name": "batchBuyGraduatedWithHAVEN",
+    "name": "buyGraduatedTokenWithHAVEN",
     "outputs": [
       {
         "internalType": "uint256",
         "name": "tokensOut",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "bondingCurveToken",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "tokenAmount",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "minBNBOut",
-        "type": "uint256"
-      }
-    ],
-    "name": "batchSellBondingCurveForBNB",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "bnbOut",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "bondingCurveToken",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "tokenAmount",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "minHavenOut",
-        "type": "uint256"
-      }
-    ],
-    "name": "batchSellBondingCurveForHAVEN",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "havenOut",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "token",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "tokenAmount",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "minBNBOut",
-        "type": "uint256"
-      }
-    ],
-    "name": "batchSellGraduatedForBNB",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "bnbOut",
-        "type": "uint256"
-      }
-    ],
-    "stateMutability": "nonpayable",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "token",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "tokenAmount",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "minHavenOut",
-        "type": "uint256"
-      }
-    ],
-    "name": "batchSellGraduatedForHAVEN",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "havenOut",
         "type": "uint256"
       }
     ],
@@ -517,6 +429,25 @@
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "isWBNBBondingCurve",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "maxSlippageBps",
     "outputs": [
@@ -563,35 +494,6 @@
         "internalType": "bool",
         "name": "",
         "type": "bool"
-      }
-    ],
-    "stateMutability": "view",
-    "type": "function"
-  },
-  {
-    "inputs": [
-      {
-        "internalType": "address",
-        "name": "bondingCurveToken",
-        "type": "address"
-      },
-      {
-        "internalType": "uint256",
-        "name": "bnbAmount",
-        "type": "uint256"
-      }
-    ],
-    "name": "previewBuyBondingCurveWithBNB",
-    "outputs": [
-      {
-        "internalType": "uint256",
-        "name": "tokensOut",
-        "type": "uint256"
-      },
-      {
-        "internalType": "uint256",
-        "name": "havenAmount",
-        "type": "uint256"
       }
     ],
     "stateMutability": "view",
@@ -678,15 +580,15 @@
       },
       {
         "internalType": "uint256",
-        "name": "tokenAmount",
+        "name": "bnbAmount",
         "type": "uint256"
       }
     ],
-    "name": "previewSellBondingCurveForBNB",
+    "name": "previewBuyWithBNB",
     "outputs": [
       {
         "internalType": "uint256",
-        "name": "bnbOut",
+        "name": "tokensOut",
         "type": "uint256"
       },
       {
@@ -707,15 +609,49 @@
       },
       {
         "internalType": "uint256",
+        "name": "exactTokensOut",
+        "type": "uint256"
+      }
+    ],
+    "name": "previewExactBuyWithBNB",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "bnbRequired",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "havenRequired",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "bondingCurveToken",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
         "name": "tokenAmount",
         "type": "uint256"
       }
     ],
-    "name": "previewSellBondingCurveForHAVEN",
+    "name": "previewSellBondingCurveForBNB",
     "outputs": [
       {
         "internalType": "uint256",
-        "name": "havenOut",
+        "name": "bnbOut",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "havenAmount",
         "type": "uint256"
       }
     ],
@@ -768,6 +704,111 @@
       }
     ],
     "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "bondingCurveToken",
+        "type": "address"
+      },
+      {
+        "internalType": "bool",
+        "name": "isWBNB",
+        "type": "bool"
+      }
+    ],
+    "name": "registerBondingCurveType",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "bondingCurveToken",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "tokenAmount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "minBNBOut",
+        "type": "uint256"
+      }
+    ],
+    "name": "sellBondingCurveTokenForBNB",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "bnbOut",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "tokenAmount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "minBNBOut",
+        "type": "uint256"
+      }
+    ],
+    "name": "sellGraduatedTokenForBNB",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "bnbOut",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "token",
+        "type": "address"
+      },
+      {
+        "internalType": "uint256",
+        "name": "tokenAmount",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "minHavenOut",
+        "type": "uint256"
+      }
+    ],
+    "name": "sellGraduatedTokenForHAVEN",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "havenOut",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
     "type": "function"
   },
   {

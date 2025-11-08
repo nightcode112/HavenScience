@@ -184,7 +184,6 @@ function HavenTokenDetailComponent({ robot, onClose, favoritesHook }) {
 
   // Only log every 50 renders to reduce console spam
   if (renderCountHaven.current % 50 === 0) {
-    console.log(`[HavenTokenDetail] Render #${renderCountHaven.current}`)
   }
 
   // Check what props changed
@@ -196,7 +195,6 @@ function HavenTokenDetailComponent({ robot, onClose, favoritesHook }) {
   const changed = []
   if (prevStateRef.current.robot !== robot) {
     changed.push('robot')
-    console.log('[HavenTokenDetail] robot changed:', prevStateRef.current.robot, '->', robot)
   }
   if (prevStateRef.current.onClose !== onClose) changed.push('onClose')
   if (prevStateRef.current.favoritesHook !== favoritesHook) {
@@ -210,11 +208,9 @@ function HavenTokenDetailComponent({ robot, onClose, favoritesHook }) {
       if (prevStateRef.current.favoritesHook.removeFavorite !== favoritesHook.removeFavorite) fhChanged.push('removeFavorite')
       if (prevStateRef.current.favoritesHook.toggleFavorite !== favoritesHook.toggleFavorite) fhChanged.push('toggleFavorite')
       if (prevStateRef.current.favoritesHook.loading !== favoritesHook.loading) fhChanged.push('loading')
-      console.log('[HavenTokenDetail] favoritesHook properties changed:', fhChanged.join(', '))
     }
   }
   if (changed.length > 0) {
-    console.log('[HavenTokenDetail] Props changed:', changed.join(', '))
   }
   prevStateRef.current = currentState
 
@@ -228,10 +224,8 @@ function HavenTokenDetailComponent({ robot, onClose, favoritesHook }) {
   // DEBUG: Track if zustand subscriptions changed
   const prevZustandRef = useRef({})
   if (prevZustandRef.current.setTabStoreActive !== setTabStoreActive) {
-    console.log('[HavenTokenDetail] setTabStoreActive function changed!')
   }
   if (prevZustandRef.current.updateTab !== updateTab) {
-    console.log('[HavenTokenDetail] updateTab function changed!')
   }
   prevZustandRef.current = { setTabStoreActive, updateTab }
 
@@ -240,21 +234,21 @@ function HavenTokenDetailComponent({ robot, onClose, favoritesHook }) {
   const havenTokenChartRef = useRef(null) // Ref to HavenTokenChart component
   const pendingChartUpdateRef = useRef(false) // Track if we have a pending chart update
   const [candleData, setCandleDataRaw] = useState([])
-  const setCandleData = (val) => { console.log('[STATE] setCandleData'); setCandleDataRaw(val) }
   const [isChartLoading, setIsChartLoadingRaw] = useState(true)
-  const setIsChartLoading = (val) => { console.log('[STATE] setIsChartLoading'); setIsChartLoadingRaw(val) }
+const setCandleData = (val) => { setCandleDataRaw(val) }
   const isInitializingRef = useRef(false)
+const setIsChartLoading = (val) => { setIsChartLoadingRaw(val) }
   const hasInitializedRef = useRef(false)
   const [tradeAmount, setTradeAmountRaw] = useState('100')
-  const setTradeAmount = (val) => { console.log('[STATE] setTradeAmount'); setTradeAmountRaw(val) }
+const setTradeAmount = (val) => { setTradeAmountRaw(val) }
   const [tradeMode, setTradeModeRaw] = useState('buy')
-  const setTradeMode = (val) => { console.log('[STATE] setTradeMode'); setTradeModeRaw(val) }
+const setTradeMode = (val) => { setTradeModeRaw(val) }
   const [orderType, setOrderTypeRaw] = useState('market')
-  const setOrderType = (val) => { console.log('[STATE] setOrderType'); setOrderTypeRaw(val) }
+const setOrderType = (val) => { setOrderTypeRaw(val) }
   const [limitPrice, setLimitPriceRaw] = useState('')
-  const setLimitPrice = (val) => { console.log('[STATE] setLimitPrice'); setLimitPriceRaw(val) }
+const setLimitPrice = (val) => { setLimitPriceRaw(val) }
   const [priceAdjustment, setPriceAdjustmentRaw] = useState(0)
-  const setPriceAdjustment = (val) => { console.log('[STATE] setPriceAdjustment'); setPriceAdjustmentRaw(val) }
+const setPriceAdjustment = (val) => { setPriceAdjustmentRaw(val) }
 
   // Use favoritesHook from props (same as factory page)
   const { favorites, toggleFavorite } = favoritesHook || { favorites: [], toggleFavorite: () => {} }
@@ -328,8 +322,8 @@ function HavenTokenDetailComponent({ robot, onClose, favoritesHook }) {
   })
   const [tokenCreator, setTokenCreator] = useState(null)
   const [fetchedTokenData, setFetchedTokenDataRaw] = useState(null)
-  const setFetchedTokenData = (val) => { console.log('[STATE] setFetchedTokenData', new Error().stack); setFetchedTokenDataRaw(val) }
   const [copiedAddress, setCopiedAddress] = useState(false)
+const setFetchedTokenData = (val) => { setFetchedTokenDataRaw(val) }
   const [calculatedMarketCap, setCalculatedMarketCap] = useState(null)
   const [calculatedPrice, setCalculatedPrice] = useState(null)
   const [allTrades, setAllTrades] = useState([])
@@ -348,7 +342,6 @@ function HavenTokenDetailComponent({ robot, onClose, favoritesHook }) {
   const [statusInfo, setStatusInfoRaw] = useState(null)
   // DEBUG: Wrap setStatusInfo to log all calls
   const setStatusInfo = (value) => {
-    console.log('[HavenTokenDetail] setStatusInfo called:', value, 'Stack:', new Error().stack)
     setStatusInfoRaw(value)
   }
   const [isAddingCommand, setIsAddingCommand] = useState(false)
@@ -371,7 +364,6 @@ function HavenTokenDetailComponent({ robot, onClose, favoritesHook }) {
   // Redirect to home if address is invalid
   useEffect(() => {
     if (!address || address === 'undefined' || address === 'null') {
-      console.error('[HavenTokenDetail] Invalid address:', rawAddress, 'Redirecting to home...')
       navigate('/')
     }
   }, [address, rawAddress, navigate])
@@ -388,15 +380,6 @@ function HavenTokenDetailComponent({ robot, onClose, favoritesHook }) {
     // Handle both string and number types
     const isBnbBasedToken = virtualEthReserve == '7000000000000000000' || virtualEthReserve === 7000000000000000000 // 7 BNB
 
-    // ALWAYS log to debug
-    console.log('🔍 Token data conversion check:', {
-      address: address?.slice(0, 10),
-      virtualEthReserve,
-      isBnbBasedToken,
-      bnbPrice,
-      fetchedTokenData_market_cap: fetchedTokenData?.market_cap,
-      robot_market_cap: robot?.market_cap
-    })
 
     // For BNB-based tokens, DB stores values in BNB (need to convert to USD)
     // For HAVEN-based tokens, DB stores values in USD already
@@ -408,12 +391,6 @@ function HavenTokenDetailComponent({ robot, onClose, favoritesHook }) {
     const baseLiquidityUsd = isBnbBasedToken ? parseFloat(rawLiquidity) * bnbPrice : parseFloat(rawLiquidity)
     const baseMarketCapUsd = isBnbBasedToken ? parseFloat(rawMarketCap) * bnbPrice : parseFloat(rawMarketCap)
 
-    console.log('🔍 Converted values:', {
-      isBnbBasedToken,
-      rawMarketCap,
-      baseMarketCapUsd,
-      bnbPrice
-    })
 
     return {
       ...(fetchedTokenData || {}),  // Base data from Supabase fetch
@@ -457,12 +434,10 @@ function HavenTokenDetailComponent({ robot, onClose, favoritesHook }) {
       const hasChanged = criticalFields.some(field => prev[field] !== newRobot[field])
 
       if (!hasChanged) {
-        console.log('[selectedRobot] No critical changes, reusing previous reference')
         return prev  // Return same reference to prevent RobotModal re-render
       }
     }
 
-    console.log('[selectedRobot] Critical fields changed, creating new reference')
     prevSelectedRobotRef.current = newRobot
     return newRobot
   }, [tokenData])
@@ -744,6 +719,48 @@ function HavenTokenDetailComponent({ robot, onClose, favoritesHook }) {
       saveToSearchHistory(fetchedTokenData, walletAddress)
     }
   }, [fetchedTokenData, walletAddress])
+
+  // Fetch token symbol from blockchain for graduated tokens when missing
+  useEffect(() => {
+    const fetchOnChainSymbol = async () => {
+      // Only fetch if token is graduated and doesn't have a valid symbol
+      const hasValidSymbol = fetchedTokenData?.symbol && fetchedTokenData.symbol.trim() && fetchedTokenData.symbol !== 'TKN'
+      const hasValidTicker = fetchedTokenData?.ticker && fetchedTokenData.ticker.trim() && fetchedTokenData.ticker !== 'TKN'
+      
+      console.log("[fetchOnChainSymbol] Check:", { is_graduated: fetchedTokenData?.is_graduated, symbol: fetchedTokenData?.symbol, ticker: fetchedTokenData?.ticker, hasValidSymbol, hasValidTicker })
+      if (!fetchedTokenData?.is_graduated || hasValidSymbol || hasValidTicker) {
+        return
+      }
+
+      const tokenAddress = address || fetchedTokenData?.bonding_contract
+      if (!tokenAddress) return
+
+      try {
+        
+        console.log("[fetchOnChainSymbol] Fetching for address:", tokenAddress)
+        // Fetch symbol from blockchain
+        const symbol = await readContract(wagmiConfig, {
+          abi: TokenAbi,
+          address: tokenAddress,
+          functionName: 'symbol'
+        })
+
+        if (symbol) {
+          console.log("[fetchOnChainSymbol] Fetched symbol:", symbol)
+          // Update fetchedTokenData with the symbol
+          setFetchedTokenData(prev => ({
+            ...prev,
+            symbol,
+            ticker: symbol
+          }))
+        }
+      } catch (error) {
+        console.error("[fetchOnChainSymbol] Error:", error)
+      }
+    }
+
+    fetchOnChainSymbol()
+  }, [address, fetchedTokenData?.is_graduated, fetchedTokenData?.symbol, fetchedTokenData?.ticker, fetchedTokenData?.bonding_contract])
 
   // Load simulation when control tab is opened
   useEffect(() => {
@@ -1106,24 +1123,19 @@ function HavenTokenDetailComponent({ robot, onClose, favoritesHook }) {
 
   // RobotModal callbacks - memoized to prevent re-renders
   const handleRobotModalClose = useCallback(() => {
-    console.log('[handleRobotModalClose] Closing robot modal')
     setIsRobotModalOpen(false)
   }, [])
 
   const handleRobotBuy = useCallback(async () => {
-    console.log('[handleRobotBuy] Buy action')
   }, [])
 
   const handleRobotSell = useCallback(async () => {
-    console.log('[handleRobotSell] Sell action')
   }, [])
 
   const handleRobotUpdate = useCallback(() => {
-    console.log('[handleRobotUpdate] Robot update action')
   }, [])
 
   const handleSyncSimulations = useCallback(() => {
-    console.log('[handleSyncSimulations] Sync simulations action')
   }, [])
 
   const showModal = (type, title, message, isLoading = false) => {
@@ -1149,12 +1161,14 @@ function HavenTokenDetailComponent({ robot, onClose, favoritesHook }) {
       }
 
       const tokenAddress = address
+      console.log("[executeTrade] Using address:", tokenAddress, "fetchedTokenData:", { bonding_contract: fetchedTokenData?.bonding_contract, contract: fetchedTokenData?.contract, address: fetchedTokenData?.address })
       if (!tokenAddress) {
         showModal('error', 'Token Not Found', 'Token address not found')
         return
       }
 
       const tokenLabel = tokenData.symbol || tokenData.ticker || 'TKN'
+      console.log("[executeTrade] tokenLabel:", tokenLabel, "from tokenData:", { symbol: tokenData.symbol, ticker: tokenData.ticker })
 
       // Get token decimals
       let tokenDecimals = 18
@@ -1173,6 +1187,7 @@ function HavenTokenDetailComponent({ robot, onClose, favoritesHook }) {
       // Check if token is graduated
       const bondingProgress = tokenData?.progress || 0
       const isGraduated = fetchedTokenData?.is_graduated || tokenData?.isGraduated || bondingProgress >= 100
+      console.log("[executeTrade] isGraduated check:", { isGraduated, is_graduated: fetchedTokenData?.is_graduated, tokenData_isGraduated: tokenData?.isGraduated, bondingProgress, tradeMode })
 
       if (isGraduated) {
         // Use HavenRouter for graduated tokens
@@ -1289,7 +1304,9 @@ function HavenTokenDetailComponent({ robot, onClose, favoritesHook }) {
             showModal('error', 'Amount Too Small', 'Amount too small to sell')
             return
           }
+            console.log("[executeTrade] Selling graduated token - tokenAddress:", tokenAddress, "tokenAmount:", tokenAmount.toString())
 
+            console.log("[executeTrade] Calling previewSellGraduatedForBNB with address:", tokenAddress)
           if (displayCurrency === 'BNB') {
             // Sell for BNB via HavenRouterV2: Token -> HAVEN -> BNB
             const bnbOut = await readContract(wagmiConfig, {
@@ -1510,6 +1527,7 @@ function HavenTokenDetailComponent({ robot, onClose, favoritesHook }) {
         }
       } else {
         // Bonding Curve Sell logic - Use HavenRouterV2 (batched approve + sell) for BNB
+        console.log("[executeTrade] Bonding curve sell - this should NOT run for graduated tokens!")
         const tokenAmount = parseUnits(String(numericAmount), tokenDecimals)
         if (tokenAmount <= 0n) {
           showModal('error', 'Amount Too Small', 'Amount too small to sell')
@@ -1524,15 +1542,11 @@ function HavenTokenDetailComponent({ robot, onClose, favoritesHook }) {
           args: [walletAddress]
         })
 
-        console.log('[Sell Debug] User balance:', userBalance.toString())
-        console.log('[Sell Debug] Sell amount:', tokenAmount.toString())
-        console.log('[Sell Debug] Token address:', tokenAddress)
 
         // If user is trying to sell more than they have, cap it
         const actualSellAmount = tokenAmount > userBalance ? userBalance : tokenAmount
 
         if (actualSellAmount !== tokenAmount) {
-          console.log('[Sell Debug] Adjusted sell amount to user balance:', actualSellAmount.toString())
         }
 
         // Get quote from HavenRouterV2 for bonding curve sell: Token -> HAVEN -> BNB
@@ -1545,7 +1559,6 @@ function HavenTokenDetailComponent({ robot, onClose, favoritesHook }) {
             args: [tokenAddress, actualSellAmount],
           })
         } catch (previewError) {
-          console.error('[Sell Debug] Preview error:', previewError)
 
           // Check if error is about circulating supply
           if (previewError?.message?.includes('circulating supply')) {
@@ -1555,9 +1568,6 @@ function HavenTokenDetailComponent({ robot, onClose, favoritesHook }) {
             const contractBalance = await readContract(wagmiConfig, { ...tokenContract, functionName: 'balanceOf', args: [tokenAddress] })
             const circulatingSupply = totalSupply - contractBalance
 
-            console.log('[Sell Debug] Total supply:', totalSupply.toString())
-            console.log('[Sell Debug] Contract balance:', contractBalance.toString())
-            console.log('[Sell Debug] Circulating supply:', circulatingSupply.toString())
 
             showModal('error', 'Sell Amount Too High',
               `Cannot sell ${formatTokenAmount(actualSellAmount, tokenDecimals)} tokens. ` +
@@ -2606,11 +2616,9 @@ function HavenTokenDetailComponent({ robot, onClose, favoritesHook }) {
             const hasChanged = fieldsToCompare.some(field => prev[field] !== data[field])
 
             if (!hasChanged) {
-              console.log('[fetchRobot] Data unchanged, skipping update')
               return prev  // No change, return previous to prevent re-render
             }
 
-            console.log('[fetchRobot] Data changed, updating')
             // Set pair address if available
             if (data.uniswap_pool_address && data.uniswap_pool_address !== '0x0000000000000000000000000000000000000000') {
               return {
@@ -5445,7 +5453,7 @@ useEffect(() => {
                   <div className="text-white font-extrabold text-[12px] leading-tight">
                     ${formatNumber(parseFloat(tokenBalance || '0') * (tokenData?.price || 0))}
                   </div>
-                  <div className="text-gray-400 text-[10px] leading-tight font-semibold">{parseFloat(tokenBalance || '0').toFixed(0)} {tokenData?.symbol || 'TKN'}</div>
+                  <div className="text-gray-400 text-[10px] leading-tight font-semibold">{parseFloat(tokenBalance || '0').toFixed(0)} {tokenData?.symbol || tokenData?.ticker || 'TKN'}</div>
                   <div className={`text-[10px] leading-tight font-bold ${displayCurrency === 'BNB' ? 'text-purple-400' : 'text-[#86d99f]'}`}>
                     {displayCurrency === 'BNB'
                       ? `${parseFloat(walletBalance || '0').toFixed(4)} BNB`
@@ -5674,7 +5682,7 @@ useEffect(() => {
                             ? `${parseFloat(walletBalance || '0').toFixed(4)} BNB`
                             : `${parseFloat(havenBalance || '0').toFixed(2)} HAVEN`
                         } else {
-                          return `${parseFloat(tokenBalance || '0').toFixed(0)} ${tokenData?.symbol || 'TKN'}`
+                          return `${parseFloat(tokenBalance || '0').toFixed(0)} ${tokenData?.symbol || tokenData?.ticker || 'TKN'}`
                         }
                       })()}
                     </span>
@@ -5733,7 +5741,7 @@ useEffect(() => {
                     <span className="text-[10px] font-extrabold text-white">
                       {tradeMode === 'buy'
                         ? (displayCurrency === 'BNB' ? 'BNB' : 'HAVEN')
-                        : (tokenData?.symbol || 'TKN')
+                        : (tokenData?.symbol || tokenData?.ticker || 'TKN')
                       }
                     </span>
                   </div>
@@ -5765,7 +5773,7 @@ useEffect(() => {
                             <span className="text-gray-400">{amount.toFixed(displayCurrency === 'BNB' ? 4 : 2)}</span>
                             <span className="text-gray-500">→</span>
                             <span className="font-extrabold" style={{color: HAVEN_COLORS.primaryLight}}>
-                              ~{tokensReceived.toFixed(2)} {tokenData?.symbol || 'TKN'}
+                              ~{tokensReceived.toFixed(2)} {tokenData?.symbol || tokenData?.ticker || 'TKN'}
                             </span>
                           </span>
                         )
@@ -6642,7 +6650,7 @@ useEffect(() => {
                             ? `${parseFloat(walletBalance || '0').toFixed(3)} BNB`
                             : `${parseFloat(havenBalance || '0').toFixed(1)} HAVEN`
                         } else {
-                          return `${parseFloat(tokenBalance || '0').toFixed(0)} ${tokenData?.symbol || 'TKN'}`
+                          return `${parseFloat(tokenBalance || '0').toFixed(0)} ${tokenData?.symbol || tokenData?.ticker || 'TKN'}`
                         }
                       })()}
                     </span>
@@ -6668,7 +6676,7 @@ useEffect(() => {
                       <span className="text-[9px] font-extrabold text-white">
                         {tradeMode === 'buy'
                           ? (displayCurrency === 'BNB' ? 'BNB' : 'HAVEN')
-                          : (tokenData?.symbol || 'TKN')
+                          : (tokenData?.symbol || tokenData?.ticker || 'TKN')
                         }
                       </span>
                     </div>

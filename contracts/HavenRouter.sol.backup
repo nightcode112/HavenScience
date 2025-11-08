@@ -31,14 +31,6 @@ interface IPancakeRouter {
         uint256 deadline
     ) external returns (uint256[] memory amounts);
 
-    function swapExactTokensForETHSupportingFeeOnTransferTokens(
-        uint256 amountIn,
-        uint256 amountOutMin,
-        address[] calldata path,
-        address to,
-        uint256 deadline
-    ) external;
-
     function swapExactTokensForTokens(
         uint256 amountIn,
         uint256 amountOutMin,
@@ -46,14 +38,6 @@ interface IPancakeRouter {
         address to,
         uint256 deadline
     ) external returns (uint256[] memory amounts);
-
-    function swapExactTokensForTokensSupportingFeeOnTransferTokens(
-        uint256 amountIn,
-        uint256 amountOutMin,
-        address[] calldata path,
-        address to,
-        uint256 deadline
-    ) external;
 
     function getAmountsOut(
         uint256 amountIn,
@@ -79,12 +63,6 @@ interface IBondingCurveWBNB {
     function sell(uint256 tokenAmount, uint256 minXTokenOut) external;
     function previewBuy(uint256 bnbAmount) external view returns (uint256 tokensOut, uint256 feeBNB);
     function previewSell(uint256 tokenAmount) external view returns (uint256 bnbOut, uint256 feeBNB);
-    function isGraduated() external view returns (bool);
-}
-
-interface IGraduatedToken {
-    function postGradFactoryFee() external view returns (uint256);
-    function postGradCreatorFee() external view returns (uint256);
     function isGraduated() external view returns (bool);
 }
 
@@ -282,19 +260,19 @@ contract HavenRouter {
      * @dev Calculates required HAVEN, swaps BNB -> HAVEN, buys tokens, refunds excess BNB
      * @param bondingCurveToken Address of the bonding curve token to buy
      * @param exactTokensOut Exact amount of project tokens to receive
-     * @param slippageBps Maximum slippage in basis points (100 = 1%)
+     * @param maxSlippageBps Maximum slippage in basis points (100 = 1%)
      * @return bnbSpent Amount of BNB actually spent
      * @return bnbRefunded Amount of BNB refunded to user
      */
     function buyExactTokensWithBNB(
         address bondingCurveToken,
         uint256 exactTokensOut,
-        uint256 slippageBps
+        uint256 maxSlippageBps
     ) external payable whenNotPaused returns (uint256 bnbSpent, uint256 bnbRefunded) {
         if (bondingCurveToken == address(0)) revert InvalidAddress();
         if (msg.value == 0) revert InvalidAmount();
         if (exactTokensOut == 0) revert InvalidAmount();
-        if (slippageBps > maxSlippageBps) revert InvalidSlippage();
+        if (maxSlippageBps > maxSlippageBps) revert InvalidSlippage();
 
         uint256 bnbInitial = msg.value;
 
@@ -314,7 +292,7 @@ contract HavenRouter {
         uint256 bnbRequired = bnbAmounts[0];
 
         // Add slippage buffer
-        uint256 bnbWithSlippage = bnbRequired + (bnbRequired * slippageBps / 10000);
+        uint256 bnbWithSlippage = bnbRequired + (bnbRequired * maxSlippageBps / 10000);
 
         // Check if user sent enough BNB
         if (msg.value < bnbWithSlippage) revert InsufficientOutput();
@@ -551,46 +529,29 @@ contract HavenRouter {
         if (token == address(0)) revert InvalidAddress();
         if (tokenAmount == 0) revert InvalidAmount();
 
-        // Step 1: Transfer tokens from user and check actual received amount (for tokens with transfer fees)
-        uint256 balanceBefore = IERC20(token).balanceOf(address(this));
+        // Step 1: Transfer tokens from user
         bool transferSuccess = IERC20(token).transferFrom(msg.sender, address(this), tokenAmount);
         if (!transferSuccess) revert TransferFailed();
-        uint256 balanceAfter = IERC20(token).balanceOf(address(this));
-        uint256 tokensReceived = balanceAfter - balanceBefore;
 
-        if (tokensReceived == 0) revert InvalidAmount();
+        // Step 2: Approve PancakeSwap router
+        IERC20(token).approve(pancakeRouter, tokenAmount);
 
-        // Step 2: Query actual post-graduation fees from token contract (dynamic)
-        // This prevents "Pancake: K" errors by accounting for fees deducted when transferring to pair
-        uint256 totalFeeBps = _getPostGradFee(token);
-        uint256 tokensToSwap = tokensReceived;
-
-        if (totalFeeBps > 0) {
-            // Calculate fee-adjusted amount: tokensToSwap = tokensReceived * (10000 - totalFeeBps) / 10000
-            tokensToSwap = (tokensReceived * (10000 - totalFeeBps)) / 10000;
-        }
-
-        // Step 3: Approve PancakeSwap router
-        IERC20(token).approve(pancakeRouter, tokensReceived);
-
-        // Step 4: Swap Token -> HAVEN -> BNB via PancakeSwap
+        // Step 3: Swap Token -> HAVEN -> BNB via PancakeSwap
         address[] memory path = new address[](3);
         path[0] = token;
         path[1] = havenToken;
         path[2] = wbnb;
 
-        // Use fee-supporting swap function with adjusted amount
-        uint256 bnbBefore = msg.sender.balance;
-        IPancakeRouter(pancakeRouter)
-            .swapExactTokensForETHSupportingFeeOnTransferTokens(
-                tokensToSwap,  // Use fee-adjusted amount to prevent K violation
+        uint256[] memory amounts = IPancakeRouter(pancakeRouter)
+            .swapExactTokensForETH(
+                tokenAmount,
                 minBNBOut,
                 path,
                 msg.sender, // Send BNB directly to user
                 block.timestamp + defaultDeadlineOffset
             );
 
-        bnbOut = msg.sender.balance - bnbBefore;
+        bnbOut = amounts[2];
 
         return bnbOut;
     }
@@ -620,40 +581,24 @@ contract HavenRouter {
 
         if (tokensReceived == 0) revert InvalidAmount();
 
-        // Step 2: Query actual post-graduation fees from token contract (dynamic)
-        // This prevents "Pancake: K" errors by accounting for fees deducted when transferring to pair
-        uint256 totalFeeBps = _getPostGradFee(token);
-        uint256 tokensToSwap = tokensReceived;
-
-        if (totalFeeBps > 0) {
-            // Calculate fee-adjusted amount: tokensToSwap = tokensReceived * (10000 - totalFeeBps) / 10000
-            tokensToSwap = (tokensReceived * (10000 - totalFeeBps)) / 10000;
-        }
-
-        // Step 3: Approve PancakeSwap router
+        // Step 2: Approve PancakeSwap router
         IERC20(token).approve(pancakeRouter, tokensReceived);
 
-        // Step 4: Swap Token -> HAVEN via PancakeSwap (direct pair)
+        // Step 3: Swap Token -> HAVEN via PancakeSwap (direct pair)
         address[] memory path = new address[](2);
         path[0] = token;
         path[1] = havenToken;
 
-        // Check user's HAVEN balance before swap
-        uint256 havenBalanceBefore = IERC20(havenToken).balanceOf(msg.sender);
-
-        // Use fee-supporting swap function with adjusted amount
-        IPancakeRouter(pancakeRouter)
-            .swapExactTokensForTokensSupportingFeeOnTransferTokens(
-                tokensToSwap,  // Use fee-adjusted amount to prevent K violation
+        uint256[] memory amounts = IPancakeRouter(pancakeRouter)
+            .swapExactTokensForTokens(
+                tokensReceived,  // Use actual received amount, not user input
                 minHavenOut,
                 path,
                 msg.sender, // Send HAVEN directly to user
                 block.timestamp + defaultDeadlineOffset
             );
 
-        // Calculate actual HAVEN received
-        uint256 havenBalanceAfter = IERC20(havenToken).balanceOf(msg.sender);
-        havenOut = havenBalanceAfter - havenBalanceBefore;
+        havenOut = amounts[1];
 
         return havenOut;
     }
@@ -709,15 +654,6 @@ contract HavenRouter {
         address token,
         uint256 tokenAmount
     ) external view returns (uint256 bnbOut) {
-        // Query actual post-graduation fees from token contract (dynamic)
-        uint256 totalFeeBps = _getPostGradFee(token);
-        uint256 adjustedAmount = tokenAmount;
-
-        if (totalFeeBps > 0) {
-            // Calculate fee-adjusted amount: adjustedAmount = tokenAmount * (10000 - totalFeeBps) / 10000
-            adjustedAmount = (tokenAmount * (10000 - totalFeeBps)) / 10000;
-        }
-
         // Swap Token -> HAVEN -> BNB via PancakeSwap
         address[] memory path = new address[](3);
         path[0] = token;
@@ -725,7 +661,7 @@ contract HavenRouter {
         path[2] = wbnb;
 
         uint256[] memory amounts = IPancakeRouter(pancakeRouter).getAmountsOut(
-            adjustedAmount,
+            tokenAmount,
             path
         );
         bnbOut = amounts[2];
@@ -808,22 +744,13 @@ contract HavenRouter {
         address token,
         uint256 tokenAmount
     ) external view returns (uint256 havenOut) {
-        // Query actual post-graduation fees from token contract (dynamic)
-        uint256 totalFeeBps = _getPostGradFee(token);
-        uint256 adjustedAmount = tokenAmount;
-
-        if (totalFeeBps > 0) {
-            // Calculate fee-adjusted amount: adjustedAmount = tokenAmount * (10000 - totalFeeBps) / 10000
-            adjustedAmount = (tokenAmount * (10000 - totalFeeBps)) / 10000;
-        }
-
         // Swap Token -> HAVEN via PancakeSwap (direct pair)
         address[] memory path = new address[](2);
         path[0] = token;
         path[1] = havenToken;
 
         uint256[] memory amounts = IPancakeRouter(pancakeRouter).getAmountsOut(
-            adjustedAmount,
+            tokenAmount,
             path
         );
         havenOut = amounts[1];
@@ -1028,24 +955,6 @@ contract HavenRouter {
     // ============================================
     // INTERNAL FUNCTIONS
     // ============================================
-
-    /**
-     * @notice Get total post-graduation fee from a graduated token
-     * @dev Safely queries fee, returns 0 if token doesn't support the interface
-     * @param token Address of the graduated token
-     * @return totalFeeBps Total fee in basis points (factory + creator)
-     */
-    function _getPostGradFee(address token) internal view returns (uint256 totalFeeBps) {
-        try IGraduatedToken(token).postGradFactoryFee() returns (uint256 factoryFee) {
-            try IGraduatedToken(token).postGradCreatorFee() returns (uint256 creatorFee) {
-                totalFeeBps = factoryFee + creatorFee;
-            } catch {
-                totalFeeBps = 0;
-            }
-        } catch {
-            totalFeeBps = 0;
-        }
-    }
 
     /**
      * @notice Estimate HAVEN needed for target token amount

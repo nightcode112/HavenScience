@@ -1,0 +1,6 @@
+{
+  "enabledMcpjsonServers": [
+    "alchemy"
+  ],
+  "enableAllProjectMcpServers": true
+}

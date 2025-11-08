@@ -1,7 +1,7 @@
 {
   "network": "bsc",
   "address": "0x750b16d08f274b90afa827d2d50905dd80036715",
-  "deployer": "0xf244Ba7981fFDce87EF83E6dB6E2Ec9246727A38",
+  "deployer": "0xC566E6eb3454a4419eAA90BDB0A0Eb5D60750b05",
   "timestamp": "2025-10-31T20:02:26.412Z",
   "txHash": "0xfa2aa4c517fb87865cd351afa05a4efdcb5a6c0bcd8b78fc0b9f04fefc7542bb",
   "constructor": {
